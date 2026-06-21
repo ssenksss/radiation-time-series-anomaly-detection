@@ -1,0 +1,89 @@
+:root:root {
+    font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    color: #eef4ff;
+    background: #070b16;
+
+    --bg-main: #070b16;
+    --bg-deep: #050813;
+    --panel: rgba(12, 18, 35, 0.84);
+    --panel-strong: rgba(10, 15, 30, 0.94);
+    --panel-border: rgba(120, 151, 235, 0.12);
+
+    --text-main: #eef4ff;
+    --text-soft: #a9b9d8;
+    --text-dim: #8193bb;
+
+    --blue: #77d7ff;
+    --blue-strong: #8be6ff;
+    --orange: #ffad65;
+    --red: #ff6d72;
+    --green: #7ff0c0;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+html,
+body,
+#app {
+    min-height: 100%;
+}
+
+body {
+    position: relative;
+    background:
+            radial-gradient(circle at 12% 18%, rgba(79, 108, 255, 0.18), transparent 22%),
+            radial-gradient(circle at 82% 22%, rgba(51, 128, 255, 0.12), transparent 18%),
+            radial-gradient(circle at 18% 74%, rgba(76, 191, 255, 0.08), transparent 18%),
+            linear-gradient(180deg, #0b1020 0%, #060a15 100%);
+    color: var(--text-main);
+    overflow-x: hidden;
+}
+
+body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+            radial-gradient(1px 1px at 24px 36px, rgba(255,255,255,0.25), transparent),
+            radial-gradient(1px 1px at 110px 70px, rgba(255,255,255,0.18), transparent),
+            radial-gradient(1px 1px at 220px 120px, rgba(255,255,255,0.16), transparent),
+            radial-gradient(1px 1px at 340px 60px, rgba(255,255,255,0.22), transparent),
+            radial-gradient(1px 1px at 440px 180px, rgba(255,255,255,0.14), transparent),
+            radial-gradient(1px 1px at 610px 100px, rgba(255,255,255,0.18), transparent),
+            radial-gradient(1px 1px at 760px 210px, rgba(255,255,255,0.14), transparent),
+            radial-gradient(1px 1px at 920px 84px, rgba(255,255,255,0.22), transparent),
+            radial-gradient(1px 1px at 1030px 160px, rgba(255,255,255,0.16), transparent),
+            radial-gradient(1px 1px at 1180px 120px, rgba(255,255,255,0.18), transparent);
+    background-repeat: repeat;
+    background-size: 1280px 480px;
+    opacity: 0.22;
+    pointer-events: none;
+    z-index: 0;
+}
+
+body::after {
+    content: '';
+    position: fixed;
+    left: -8%;
+    bottom: -12%;
+    width: 480px;
+    height: 480px;
+    background: radial-gradient(circle, rgba(78, 106, 255, 0.16), transparent 70%);
+    filter: blur(80px);
+    pointer-events: none;
+    z-index: 0;
+}
+
+#app {
+    position: relative;
+    z-index: 1;
+}
+
+button,
+input {
+    font: inherit;
+}
