@@ -1,19 +1,43 @@
+<script setup lang="ts">
+defineProps<{
+  title: string
+  description: string
+  priority?: string
+  buttonLabel?: string
+}>()
+
+const emit = defineEmits<{
+  (e: 'acknowledge'): void
+}>()
+</script>
+
 <template>
-  <div class="panel alert-panel">
+  <div class="panel alert-panel" role="alert">
     <div class="panel__header">
       <div>
         <p class="panel__eyebrow">System Alert</p>
-        <h2>Anomaly Detected</h2>
+        <h2>{{ title }}</h2>
       </div>
     </div>
 
     <p class="alert-panel__text">
-      Radiation level exceeded threshold. Immediate attention required.
+      {{ description }}
     </p>
 
     <div class="alert-panel__footer">
-      <span class="alert-dot"></span>
-      <span>High priority event</span>
+      <div class="alert-panel__priority">
+        <span class="alert-dot"></span>
+        <span>{{ priority ?? 'High priority event' }}</span>
+      </div>
+
+      <button
+          v-if="buttonLabel"
+          class="alert-button"
+          type="button"
+          @click="emit('acknowledge')"
+      >
+        {{ buttonLabel }}
+      </button>
     </div>
   </div>
 </template>
@@ -76,10 +100,17 @@
   z-index: 1;
   display: flex;
   align-items: center;
-  gap: 10px;
+  justify-content: space-between;
+  gap: 14px;
   color: #ffb3b3;
   font-weight: 600;
   font-size: 14px;
+}
+
+.alert-panel__priority {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .alert-dot {
@@ -88,5 +119,17 @@
   border-radius: 999px;
   background: #ff6b6b;
   box-shadow: 0 0 14px rgba(255, 107, 107, 0.8);
+}
+
+.alert-button {
+  height: 38px;
+  padding: 0 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 170, 185, 0.24);
+  background: linear-gradient(180deg, rgba(255, 106, 128, 0.96), rgba(217, 56, 84, 0.96));
+  color: #fff7f8;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
 }
 </style>

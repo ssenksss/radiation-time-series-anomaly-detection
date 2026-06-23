@@ -1,20 +1,42 @@
 <script setup lang="ts">
+import { ref, watch } from 'vue'
 import AppSidebar from '../components/AppSidebar.vue'
 import AppTopbar from '../components/AppTopbar.vue'
+import AppFooter from '../components/AppFooter.vue'
+
+const SIDEBAR_STORAGE_KEY = 'radiation-monitoring-sidebar-collapsed'
+
+const isSidebarCollapsed = ref(localStorage.getItem(SIDEBAR_STORAGE_KEY) === 'true')
+
+const toggleSidebar = () => {
+  isSidebarCollapsed.value = !isSidebarCollapsed.value
+}
+
+watch(isSidebarCollapsed, (value) => {
+  localStorage.setItem(SIDEBAR_STORAGE_KEY, String(value))
+})
 </script>
 
 <template>
-  <div class="main-layout">
-    <AppSidebar />
+  <div
+      class="main-layout"
+      :class="{ 'main-layout--sidebar-collapsed': isSidebarCollapsed }"
+  >
+    <AppSidebar :is-collapsed="isSidebarCollapsed" />
 
     <div class="main-layout__content">
-      <AppTopbar />
+      <AppTopbar
+          :is-sidebar-collapsed="isSidebarCollapsed"
+          @toggle-sidebar="toggleSidebar"
+      />
 
       <main class="main-layout__page">
         <div class="main-layout__inner">
           <slot />
         </div>
       </main>
+
+      <AppFooter />
     </div>
   </div>
 </template>
@@ -27,6 +49,11 @@ import AppTopbar from '../components/AppTopbar.vue'
   background:
       radial-gradient(circle at 12% 35%, rgba(56, 88, 210, 0.08), transparent 18%),
       linear-gradient(180deg, rgba(8, 12, 24, 0.98), rgba(7, 10, 20, 1));
+  transition: grid-template-columns 0.22s ease;
+}
+
+.main-layout--sidebar-collapsed {
+  grid-template-columns: 88px minmax(0, 1fr);
 }
 
 .main-layout__content {
@@ -53,7 +80,8 @@ import AppTopbar from '../components/AppTopbar.vue'
 }
 
 @media (max-width: 768px) {
-  .main-layout {
+  .main-layout,
+  .main-layout--sidebar-collapsed {
     grid-template-columns: 1fr;
   }
 

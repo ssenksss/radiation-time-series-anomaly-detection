@@ -1,19 +1,398 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import MainLayout from '../layouts/MainLayout.vue'
 import RadiationChart from '../components/RadiationChart.vue'
+import { useNotificationSettingsStore } from '../stores/useNotificationSettingsStore'
+import {
+  getMeasurements,
+  getModelInfo,
+  getSettings,
+  getSummary,
+  updateActiveModel,
+  updateThreshold,
+} from '../services/api'
+interface Measurement {
+  timestamp: string
+  radiationLevel: number
+  sensorId: string
+  location: string
+  temperature: number | null
+  humidity: number | null
+  isAnomaly: boolean
+  anomalyScore: number
+  anomalyType: string
+  status: string
+}
 
-const thresholdValue = ref('0.75 µSv/h')
+interface Summary {
+  datasetName: string
+  totalMeasurements: number
+  totalAnomalies: number
+  currentLevel: number
+  averageLevel: number
+  maxLevel: number
+  minLevel: number
+  threshold: number
+  activeAlert: boolean
+  lastUpdated: string
+}
+
+interface AvailableModel {
+  id: string
+  name: string
+  status: string
+}
+
+interface SelectedModels {
+  modelA: string
+  modelB: string
+}
+
+interface ModelInfo {
+  currentModel: string
+  accuracy: number
+  precision: number | null
+  fpr: number | null
+  fnr?: number | null
+  source?: string
+  availableModels?: AvailableModel[]
+  selectedModels?: SelectedModels
+}
+
+const fallbackModels: AvailableModel[] = [
+  {
+    id: 'threshold',
+    name: 'Threshold Detection',
+    status: 'implemented',
+  },
+  {
+    id: 'isolation_forest',
+    name: 'Isolation Forest',
+    status: 'pending',
+  },
+  {
+    id: 'lof',
+    name: 'Local Outlier Factor',
+    status: 'pending',
+  },
+]
+
+const modelDescriptions: Record<string, string> = {
+  threshold: 'Rule-based detection using the selected radiation threshold. This model is currently implemented in the backend.',
+  isolation_forest: 'Unsupervised ML model planned for the next phase. It is visible here, but not available for selection yet.',
+  lof: 'Local density-based anomaly detection model planned for the ML phase. It is visible here, but not available for selection yet.',
+}
+
+const summary = ref<Summary | null>(null)
+const modelInfo = ref<ModelInfo | null>(null)
+const measurements = ref<Measurement[]>([])
+const editableThreshold = ref(0.18)
+
+const selectedModel = ref('threshold')
+const isModelDropdownOpen = ref(false)
+
+const { notificationSettings, saveNotificationSettings } = useNotificationSettingsStore()
+
+const isPreviewEnabled = ref(true)
+
 const saveStatus = ref('')
 const emailStatus = ref('')
+const emailStatusType = ref<'success' | 'warning'>('success')
+const isLoading = ref(true)
+const isModelLoading = ref(false)
+const errorMessage = ref('')
 
-const saveChanges = () => {
-  saveStatus.value = 'Settings saved successfully.'
+const thresholdNumber = computed(() => {
+  return editableThreshold.value
+})
+
+const thresholdValue = computed(() => {
+  return `${thresholdNumber.value.toFixed(2)} µSv/h`
+})
+
+const thresholdSliderMax = computed(() => {
+  const maxLevel = summary.value?.maxLevel ?? 1
+
+  return Math.max(1, maxLevel, thresholdNumber.value)
+})
+
+const thresholdPercent = computed(() => {
+  const percent = (thresholdNumber.value / thresholdSliderMax.value) * 100
+
+  return Math.min(100, Math.max(0, percent))
+})
+
+const thresholdFillStyle = computed(() => ({
+  width: `${thresholdPercent.value}%`,
+}))
+
+const thresholdThumbStyle = computed(() => ({
+  left: `calc(${thresholdPercent.value}% - 8px)`,
+}))
+
+const availableModels = computed(() => {
+  const models = modelInfo.value?.availableModels
+
+  if (models && models.length > 0) {
+    return models
+  }
+
+  return fallbackModels
+})
+
+const selectedModelOption = computed(() => {
+  return availableModels.value.find((model) => model.id === selectedModel.value) ?? availableModels.value[0]
+})
+
+const modelName = computed(() => {
+  return selectedModelOption.value?.name ?? 'Detection Model'
+})
+
+const modelStatus = computed(() => {
+  return selectedModelOption.value?.status ?? 'pending'
+})
+
+const isSelectedModelImplemented = computed(() => {
+  return modelStatus.value === 'implemented'
+})
+
+
+
+const accuracyValue = computed(() => {
+  if (!isSelectedModelImplemented.value) return 'Pending'
+  if (modelInfo.value?.accuracy === undefined) return 'N/A'
+
+  return `${Number(modelInfo.value.accuracy).toFixed(1)}%`
+})
+
+const precisionValue = computed(() => {
+  if (!isSelectedModelImplemented.value) return 'Pending'
+  if (modelInfo.value?.precision === null || modelInfo.value?.precision === undefined) return 'N/A'
+
+  return Number(modelInfo.value.precision).toFixed(3)
+})
+
+const fprValue = computed(() => {
+  if (!isSelectedModelImplemented.value) return 'Pending'
+  if (modelInfo.value?.fpr === null || modelInfo.value?.fpr === undefined) return 'N/A'
+
+  return Number(modelInfo.value.fpr).toFixed(3)
+})
+
+const contaminationValue = computed(() => {
+  const total = summary.value?.totalMeasurements ?? 0
+  const anomalies = summary.value?.totalAnomalies ?? 0
+
+  if (!total) return '0.03'
+
+  return (anomalies / total).toFixed(3)
+})
+
+const maxSamplesValue = computed(() => {
+  const total = summary.value?.totalMeasurements ?? 0
+
+  if (!total) return '256'
+
+  return Math.min(total, 256).toString()
+})
+
+const notificationSummary = computed(() => {
+  if (!notificationSettings.emailAlertsEnabled && !notificationSettings.inAppAlertsEnabled) {
+    return 'Notifications are currently disabled.'
+  }
+
+  const channels: string[] = []
+
+  if (notificationSettings.emailAlertsEnabled) {
+    channels.push('email')
+  }
+
+  if (notificationSettings.inAppAlertsEnabled) {
+    channels.push('in-app')
+  }
+
+  return `${notificationSettings.selectedAlertSeverity} · ${notificationSettings.selectedNotificationFrequency} · ${channels.join(' + ')}`
+})
+
+const previewMeasurements = computed(() =>
+    measurements.value.slice(-60),
+)
+
+const chartLabels = computed(() =>
+    previewMeasurements.value.map((item) => formatChartLabel(item.timestamp)),
+)
+
+const chartValues = computed(() =>
+    previewMeasurements.value.map((item) => item.radiationLevel),
+)
+
+const chartAnomalyFlags = computed(() =>
+    previewMeasurements.value.map((item) => item.radiationLevel > editableThreshold.value),
+)
+
+const chartRenderKey = computed(() => {
+  const firstLabel = chartLabels.value[0] ?? 'empty'
+  const lastLabel = chartLabels.value[chartLabels.value.length - 1] ?? 'empty'
+
+  return [
+    editableThreshold.value.toFixed(2),
+    chartValues.value.length,
+    firstLabel,
+    lastLabel,
+  ].join('-')
+})
+
+const getModelDescription = (model: AvailableModel) => {
+  return modelDescriptions[model.id] ?? 'Model configuration from backend.'
 }
 
-const sendTestEmail = () => {
-  emailStatus.value = 'Test notification sent.'
+const isModelImplemented = (model: AvailableModel) => {
+  return model.status === 'implemented'
 }
+
+const getModelStatusLabel = (model: AvailableModel) => {
+  if (model.status === 'implemented') return 'Available'
+
+  return 'Pending'
+}
+
+const toggleModelDropdown = () => {
+  isModelDropdownOpen.value = !isModelDropdownOpen.value
+}
+
+const getSecondaryModelForComparison = (primaryModel: string) => {
+  if (primaryModel !== 'isolation_forest') return 'isolation_forest'
+  return 'lof'
+}
+
+const selectModel = async (model: AvailableModel) => {
+  if (!isModelImplemented(model)) {
+    return
+  }
+
+  selectedModel.value = model.id
+  isModelDropdownOpen.value = false
+
+  try {
+    isModelLoading.value = true
+
+    modelInfo.value = await getModelInfo(
+        model.id,
+        getSecondaryModelForComparison(model.id),
+    ) as ModelInfo
+  } catch (error) {
+    console.error(error)
+    saveStatus.value = 'Model info could not be loaded.'
+
+    window.setTimeout(() => {
+      saveStatus.value = ''
+    }, 2500)
+  } finally {
+    isModelLoading.value = false
+  }
+}
+
+const saveChanges = async () => {
+  const selectedThreshold = editableThreshold.value
+
+  try {
+    saveStatus.value = 'Saving settings...'
+
+    await Promise.all([
+      updateThreshold(selectedThreshold),
+      updateActiveModel(selectedModel.value),
+    ])
+
+    saveNotificationSettings()
+
+    const [summaryResponse, modelInfoResponse, measurementsResponse] = await Promise.all([
+      getSummary(),
+      getModelInfo(selectedModel.value, getSecondaryModelForComparison(selectedModel.value)),
+      getMeasurements(200),
+    ])
+
+    summary.value = {
+      ...(summaryResponse as Summary),
+      threshold: selectedThreshold,
+    }
+
+    modelInfo.value = modelInfoResponse as ModelInfo
+    measurements.value = measurementsResponse as Measurement[]
+    editableThreshold.value = selectedThreshold
+
+    saveStatus.value = `Settings saved. Active model: ${modelName.value}.`
+  } catch (error) {
+    console.error(error)
+    saveStatus.value = 'Settings could not be saved.'
+  }
+
+  window.setTimeout(() => {
+    saveStatus.value = ''
+  }, 2500)
+}
+
+const sendTestNotification = () => {
+  if (!notificationSettings.emailAlertsEnabled && !notificationSettings.inAppAlertsEnabled) {
+    emailStatus.value = 'Enable a notification channel first.'
+    emailStatusType.value = 'warning'
+  } else if (notificationSettings.emailAlertsEnabled && !notificationSettings.alertEmail.trim()) {
+    emailStatus.value = 'Enter an email address first.'
+    emailStatusType.value = 'warning'
+  } else {
+    emailStatus.value = 'Test notification sent.'
+    emailStatusType.value = 'success'
+  }
+
+  window.setTimeout(() => {
+    emailStatus.value = ''
+  }, 2500)
+}
+
+const formatChartLabel = (timestamp: string) => {
+  const parts = timestamp.split(' ')
+  return parts[1]?.slice(0, 5) ?? timestamp
+}
+
+const loadSettingsData = async () => {
+  try {
+    isLoading.value = true
+    errorMessage.value = ''
+
+    const [settingsResponse, summaryResponse, measurementsResponse] = await Promise.all([
+      getSettings(),
+      getSummary(),
+      getMeasurements(200),
+    ])
+
+    selectedModel.value = settingsResponse.activeModel || 'threshold'
+
+    const modelInfoResponse = await getModelInfo(
+        selectedModel.value,
+        getSecondaryModelForComparison(selectedModel.value),
+    )
+
+    summary.value = summaryResponse as Summary
+    editableThreshold.value = summaryResponse.threshold
+
+    const loadedModelInfo = modelInfoResponse as ModelInfo
+    modelInfo.value = loadedModelInfo
+
+    if (loadedModelInfo.selectedModels?.modelA) {
+      selectedModel.value = loadedModelInfo.selectedModels.modelA
+    }
+
+    measurements.value = measurementsResponse as Measurement[]
+  } catch (error) {
+    console.error(error)
+    errorMessage.value = 'Backend settings data could not be loaded.'
+  } finally {
+    isLoading.value = false
+  }
+}
+
+onMounted(() => {
+  loadSettingsData()
+})
 </script>
 
 <template>
@@ -22,6 +401,10 @@ const sendTestEmail = () => {
       <section class="panel threshold-panel">
         <h1>Settings</h1>
 
+        <div v-if="errorMessage" class="feedback">
+          {{ errorMessage }}
+        </div>
+
         <div class="threshold-block">
           <div class="threshold-header">
             <h2>Detection Threshold</h2>
@@ -29,12 +412,21 @@ const sendTestEmail = () => {
 
           <div class="threshold-row">
             <span>Radiation Level Threshold</span>
-            <strong>{{ thresholdValue }}</strong>
+            <strong>{{ isLoading ? 'Loading...' : thresholdValue }}</strong>
           </div>
 
           <div class="slider">
-            <div class="slider__fill"></div>
-            <div class="slider__thumb"></div>
+            <div class="slider__fill" :style="thresholdFillStyle"></div>
+            <div class="slider__thumb" :style="thresholdThumbStyle"></div>
+
+            <input
+                v-model.number="editableThreshold"
+                class="slider-input"
+                type="range"
+                min="0"
+                max="1"
+                step="0.01"
+            />
           </div>
         </div>
 
@@ -43,77 +435,245 @@ const sendTestEmail = () => {
             <h2>Anomaly Detection Model</h2>
             <div class="accuracy-box">
               <span>Current Accuracy</span>
-              <strong>93.5%</strong>
+              <strong>{{ isLoading || isModelLoading ? 'Loading...' : accuracyValue }}</strong>
             </div>
           </div>
 
           <div class="select-row">
-            <span>Detection Model</span>
-            <button class="select-button">Isolation Forest ⌄</button>
+            <span>Active Detection Model</span>
+
+            <div class="model-select">
+              <button
+                  class="select-button"
+                  type="button"
+                  @click="toggleModelDropdown"
+              >
+                {{ modelName }} ⌄
+              </button>
+
+              <div v-if="isModelDropdownOpen" class="model-dropdown">
+                <button
+                    v-for="model in availableModels"
+                    :key="model.id"
+                    class="model-option"
+                    :class="{
+                      'model-option--active': selectedModel === model.id,
+                      'model-option--disabled': !isModelImplemented(model),
+                    }"
+                    type="button"
+                    :disabled="!isModelImplemented(model)"
+                    @click="selectModel(model)"
+                >
+                  <div class="model-option__top">
+                    <strong>{{ model.name }}</strong>
+                    <span
+                        class="model-status"
+                        :class="{
+                          'model-status--available': isModelImplemented(model),
+                          'model-status--pending': !isModelImplemented(model),
+                        }"
+                    >
+                      {{ getModelStatusLabel(model) }}
+                    </span>
+                  </div>
+
+                  <span>{{ getModelDescription(model) }}</span>
+                </button>
+              </div>
+            </div>
           </div>
+
+
+
 
           <div class="config-grid">
             <div class="config-item">
               <span>Contamination</span>
-              <strong>0.03</strong>
+              <strong>{{ contaminationValue }}</strong>
             </div>
             <div class="config-item">
               <span>Max Samples</span>
-              <strong>266</strong>
+              <strong>{{ maxSamplesValue }}</strong>
             </div>
             <div class="config-item">
-              <span>Max Features</span>
-              <strong>1.0</strong>
+              <span>Precision</span>
+              <strong>{{ precisionValue }}</strong>
             </div>
             <div class="config-item">
-              <span>Random State</span>
-              <strong>42</strong>
+              <span>FPR</span>
+              <strong>{{ fprValue }}</strong>
             </div>
           </div>
 
           <div class="save-row">
-            <button class="save-button" @click="saveChanges">Save Changes</button>
+            <button class="save-button" type="button" @click="saveChanges">Save Changes</button>
             <span v-if="saveStatus" class="feedback feedback--success">{{ saveStatus }}</span>
           </div>
         </div>
 
         <div class="notifications-block">
-          <h2>Notification Settings</h2>
-
-          <div class="toggle-row">
-            <span>Enable Push Notifications</span>
-            <div class="toggle toggle--on"></div>
+          <div class="notifications-header">
+            <div>
+              <h2>Notification Settings</h2>
+              <p>{{ notificationSummary }}</p>
+            </div>
           </div>
 
-          <div class="toggle-row">
-            <span>Email alerts</span>
-            <div class="toggle toggle--on toggle--small"></div>
+          <div class="notification-layout">
+            <div class="notification-column">
+              <div class="notification-section-title">
+                <span>Alert Channels</span>
+                <small>Choose where the warning should appear.</small>
+              </div>
+
+              <button
+                  class="channel-card"
+                  :class="{ 'channel-card--active': notificationSettings.emailAlertsEnabled }"
+                  type="button"
+                  @click="notificationSettings.emailAlertsEnabled = !notificationSettings.emailAlertsEnabled"
+              >
+                <div>
+                  <strong>Email alerts</strong>
+                  <span>Send alert message to the configured email address.</span>
+                </div>
+                <span
+                    class="toggle"
+                    :class="{ 'toggle--on': notificationSettings.emailAlertsEnabled }"
+                ></span>
+              </button>
+
+              <button
+                  class="channel-card"
+                  :class="{ 'channel-card--active': notificationSettings.inAppAlertsEnabled }"
+                  type="button"
+                  @click="notificationSettings.inAppAlertsEnabled = !notificationSettings.inAppAlertsEnabled"
+              >
+                <div>
+                  <strong>In-app alerts</strong>
+                  <span>Show active warning inside the monitoring dashboard.</span>
+                </div>
+                <span
+                    class="toggle"
+                    :class="{ 'toggle--on': notificationSettings.inAppAlertsEnabled }"
+                ></span>
+              </button>
+            </div>
+
+            <div class="notification-column">
+              <div class="notification-section-title">
+                <span>Alert Rules</span>
+                <small>Choose which anomaly severity should trigger alerts.</small>
+              </div>
+
+              <div class="option-group">
+                <button
+                    type="button"
+                    :class="{ 'option-button--active': notificationSettings.selectedAlertSeverity === 'Critical only' }"
+                    class="option-button"
+                    @click="notificationSettings.selectedAlertSeverity = 'Critical only'"
+                >
+                  Critical only
+                </button>
+                <button
+                    type="button"
+                    :class="{ 'option-button--active': notificationSettings.selectedAlertSeverity === 'High + Critical' }"
+                    class="option-button"
+                    @click="notificationSettings.selectedAlertSeverity = 'High + Critical'"
+                >
+                  High + Critical
+                </button>
+                <button
+                    type="button"
+                    :class="{ 'option-button--active': notificationSettings.selectedAlertSeverity === 'All anomalies' }"
+                    class="option-button"
+                    @click="notificationSettings.selectedAlertSeverity = 'All anomalies'"
+                >
+                  All anomalies
+                </button>
+              </div>
+
+              <div class="notification-section-title notification-section-title--spaced">
+                <span>Delivery</span>
+                <small>Choose how often alert messages are delivered.</small>
+              </div>
+
+              <div class="option-group">
+                <button
+                    type="button"
+                    :class="{ 'option-button--active': notificationSettings.selectedNotificationFrequency === 'Immediate' }"
+                    class="option-button"
+                    @click="notificationSettings.selectedNotificationFrequency = 'Immediate'"
+                >
+                  Immediate
+                </button>
+                <button
+                    type="button"
+                    :class="{ 'option-button--active': notificationSettings.selectedNotificationFrequency === 'Daily summary' }"
+                    class="option-button"
+                    @click="notificationSettings.selectedNotificationFrequency = 'Daily summary'"
+                >
+                  Daily summary
+                </button>
+              </div>
+            </div>
           </div>
 
-          <div class="input-row">
-            <span>Email</span>
-            <div class="input-box">alerts@mail.com</div>
-          </div>
+          <div class="alert-email-row">
+            <div>
+              <span>Alert email</span>
+              <small>Used only when Email alerts are enabled.</small>
+            </div>
 
-          <div class="input-row">
-            <span>Password</span>
-            <div class="input-box">••••••••••••••••</div>
+            <input
+                v-model="notificationSettings.alertEmail"
+                class="input-box input-box--editable"
+                type="email"
+                placeholder="Enter alert email"
+                :disabled="!notificationSettings.emailAlertsEnabled"
+            />
           </div>
 
           <div class="send-row">
-            <button class="send-button" @click="sendTestEmail">Send Test Email</button>
-            <span v-if="emailStatus" class="feedback">{{ emailStatus }}</span>
+            <button class="send-button" type="button" @click="sendTestNotification">
+              Send Test Notification
+            </button>
+            <span
+                v-if="emailStatus"
+                class="notification-feedback"
+                :class="`notification-feedback--${emailStatusType}`"
+            >
+              {{ emailStatus }}
+            </span>
           </div>
         </div>
 
-        <div class="preview-block">
+        <div
+            class="preview-block"
+            :class="{ 'preview-block--collapsed': !isPreviewEnabled }"
+        >
           <div class="preview-header">
-            <h2>Threshold Preview</h2>
-            <div class="mini-toggle"></div>
+            <div>
+              <h2>Threshold Preview</h2>
+              <p v-if="!isPreviewEnabled">Preview is hidden. Enable it to inspect threshold impact on recent measurements.</p>
+            </div>
+
+            <button
+                class="mini-toggle"
+                :class="{ 'mini-toggle--off': !isPreviewEnabled }"
+                type="button"
+                @click="isPreviewEnabled = !isPreviewEnabled"
+                :aria-label="isPreviewEnabled ? 'Hide threshold preview' : 'Show threshold preview'"
+            ></button>
           </div>
 
-          <div class="preview-chart">
-            <RadiationChart />
+          <div v-if="isPreviewEnabled" class="preview-chart">
+            <RadiationChart
+                :key="chartRenderKey"
+                :labels="chartLabels.length ? chartLabels : undefined"
+                :values="chartValues.length ? chartValues : undefined"
+                :threshold="editableThreshold"
+                :anomaly-flags="chartAnomalyFlags"
+            />
           </div>
         </div>
       </section>
@@ -133,11 +693,11 @@ const sendTestEmail = () => {
   border-radius: 22px;
   border: 1px solid rgba(120, 151, 235, 0.12);
   background:
-    radial-gradient(circle at top right, rgba(76, 111, 255, 0.08), transparent 30%),
-    linear-gradient(180deg, rgba(12, 18, 35, 0.88), rgba(9, 14, 28, 0.96));
+      radial-gradient(circle at top right, rgba(76, 111, 255, 0.08), transparent 30%),
+      linear-gradient(180deg, rgba(12, 18, 35, 0.88), rgba(9, 14, 28, 0.96));
   box-shadow:
-    0 10px 36px rgba(0, 0, 0, 0.22),
-    inset 0 1px 0 rgba(255,255,255,0.02);
+      0 10px 36px rgba(0, 0, 0, 0.22),
+      inset 0 1px 0 rgba(255,255,255,0.02);
   backdrop-filter: blur(14px);
 }
 
@@ -165,7 +725,8 @@ const sendTestEmail = () => {
 .toggle-row,
 .input-row,
 .save-row,
-.send-row {
+.send-row,
+.notifications-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -174,7 +735,8 @@ const sendTestEmail = () => {
 
 .threshold-header,
 .model-block__header,
-.preview-header {
+.preview-header,
+.notifications-header {
   margin-bottom: 14px;
 }
 
@@ -184,6 +746,15 @@ const sendTestEmail = () => {
 .preview-block h2 {
   color: #eef4ff;
   font-size: 20px;
+}
+
+.notifications-header p,
+.preview-header p,
+.model-description {
+  margin-top: 6px;
+  color: #90a5cd;
+  font-size: 13px;
+  line-height: 1.4;
 }
 
 .threshold-row {
@@ -216,12 +787,15 @@ const sendTestEmail = () => {
   position: absolute;
   top: 50%;
   left: calc(82% - 8px);
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   border-radius: 999px;
   background: #ffd6c6;
   transform: translateY(-50%);
-  box-shadow: 0 0 12px rgba(255, 160, 120, 0.4);
+  box-shadow:
+      0 0 12px rgba(255, 160, 120, 0.45),
+      0 0 0 4px rgba(255, 160, 120, 0.12);
+  pointer-events: none;
 }
 
 .accuracy-box {
@@ -254,6 +828,109 @@ const sendTestEmail = () => {
   background: rgba(255,255,255,0.05);
   color: #dbe8ff;
   cursor: pointer;
+}
+
+.model-select {
+  position: relative;
+}
+
+.model-dropdown {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 20;
+  width: 380px;
+  padding: 8px;
+  border-radius: 14px;
+  border: 1px solid rgba(120, 151, 235, 0.14);
+  background: rgba(9, 14, 28, 0.98);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+}
+
+.model-option {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: transparent;
+  color: #dbe8ff;
+  text-align: left;
+  cursor: pointer;
+}
+
+.model-option__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.model-option strong {
+  display: block;
+  color: #eef4ff;
+}
+
+.model-option span {
+  color: #90a5cd;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.model-option:hover,
+.model-option--active {
+  background: rgba(107, 158, 255, 0.1);
+  border-color: rgba(107, 158, 255, 0.16);
+}
+
+.model-option--disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.model-option--disabled:hover {
+  background: transparent;
+  border-color: transparent;
+}
+
+.model-status {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 11px !important;
+  font-weight: 700;
+}
+
+.model-status--available {
+  background: rgba(126, 240, 191, 0.12);
+  color: #7ef0bf !important;
+  border: 1px solid rgba(126, 240, 191, 0.18);
+}
+
+.model-status--pending {
+  background: rgba(255, 179, 106, 0.1);
+  color: #ffb36a !important;
+  border: 1px solid rgba(255, 179, 106, 0.16);
+}
+
+.model-state {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(126, 240, 191, 0.14);
+  background: rgba(126, 240, 191, 0.05);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.model-state span {
+  color: #90a5cd;
+}
+
+.model-state strong {
+  color: #dff8ee;
 }
 
 .config-grid {
@@ -300,12 +977,92 @@ const sendTestEmail = () => {
   color: #7ef0bf;
 }
 
+.notification-feedback {
+  font-size: 14px;
+}
+
+.notification-feedback--success {
+  color: #7ef0bf;
+}
+
+.notification-feedback--warning {
+  color: #ffb36a;
+}
+
+.notification-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.notification-column {
+  min-height: 180px;
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,0.05);
+  background: rgba(255,255,255,0.02);
+}
+
+.notification-section-title {
+  margin-bottom: 12px;
+}
+
+.notification-section-title--spaced {
+  margin-top: 18px;
+}
+
+.notification-section-title span,
+.alert-email-row span {
+  display: block;
+  color: #eef4ff;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.notification-section-title small,
+.alert-email-row small,
+.channel-card span {
+  color: #90a5cd;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.channel-card {
+  width: 100%;
+  min-height: 74px;
+  margin-bottom: 10px;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(120, 151, 235, 0.1);
+  background: rgba(255,255,255,0.025);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.channel-card strong {
+  display: block;
+  margin-bottom: 4px;
+  color: #eef4ff;
+}
+
+.channel-card--active {
+  background: rgba(126, 240, 191, 0.06);
+  border-color: rgba(126, 240, 191, 0.16);
+}
+
 .toggle {
   width: 48px;
   height: 26px;
   border-radius: 999px;
   background: rgba(255,255,255,0.08);
   position: relative;
+  border: 1px solid rgba(120, 151, 235, 0.12);
+  padding: 0;
+  flex: 0 0 auto;
 }
 
 .toggle::after,
@@ -313,29 +1070,61 @@ const sendTestEmail = () => {
   content: '';
   position: absolute;
   top: 3px;
-  left: 23px;
+  left: 3px;
   width: 20px;
   height: 20px;
   border-radius: 999px;
   background: #d8ecff;
+  transition: left 0.18s ease;
 }
 
-.toggle--small {
-  width: 42px;
-}
-
-.toggle--small::after {
-  left: 19px;
+.toggle--on::after {
+  left: 23px;
 }
 
 .toggle--on,
-.mini-toggle {
+.mini-toggle:not(.mini-toggle--off) {
   background: rgba(126, 240, 191, 0.18);
   border: 1px solid rgba(126, 240, 191, 0.18);
 }
 
+.option-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.option-button {
+  min-height: 34px;
+  padding: 0 11px;
+  border-radius: 999px;
+  border: 1px solid rgba(120, 151, 235, 0.12);
+  background: rgba(255,255,255,0.04);
+  color: #9fb1d1;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.option-button--active {
+  color: #dff8ee;
+  background: rgba(126, 240, 191, 0.12);
+  border-color: rgba(126, 240, 191, 0.2);
+}
+
+.alert-email-row {
+  margin-top: 14px;
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,0.05);
+  background: rgba(255,255,255,0.02);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
 .input-box {
-  min-width: 240px;
+  min-width: 260px;
   min-height: 40px;
   padding: 0 14px;
   border-radius: 10px;
@@ -343,6 +1132,21 @@ const sendTestEmail = () => {
   background: rgba(255,255,255,0.03);
   display: flex;
   align-items: center;
+  color: #eef4ff;
+}
+
+.input-box--editable {
+  outline: none;
+  font: inherit;
+}
+
+.input-box--editable:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.input-box--editable::placeholder {
+  color: #6f83aa;
 }
 
 .mini-toggle {
@@ -350,6 +1154,11 @@ const sendTestEmail = () => {
   height: 24px;
   border-radius: 999px;
   position: relative;
+  border: 1px solid rgba(126, 240, 191, 0.18);
+  cursor: pointer;
+  padding: 0;
+  appearance: none;
+  flex: 0 0 auto;
 }
 
 .mini-toggle::after {
@@ -359,30 +1168,63 @@ const sendTestEmail = () => {
   height: 18px;
 }
 
+.mini-toggle--off {
+  background: rgba(255,255,255,0.08);
+  border-color: rgba(120, 151, 235, 0.12);
+}
+
+.mini-toggle--off::after {
+  left: 3px;
+}
+
+.preview-block--collapsed {
+  padding-bottom: 12px;
+}
+
 .preview-chart {
   height: 320px;
 }
 
 @media (max-width: 900px) {
-  .config-grid {
+  .config-grid,
+  .notification-layout {
     grid-template-columns: 1fr;
   }
 
   .threshold-row,
   .select-row,
-  .toggle-row,
-  .input-row,
   .model-block__header,
   .save-row,
   .send-row,
-  .preview-header {
+  .preview-header,
+  .notifications-header,
+  .alert-email-row,
+  .model-state {
     flex-direction: column;
     align-items: flex-start;
   }
 
+  .model-select,
+  .select-button,
   .input-box {
     min-width: 0;
     width: 100%;
   }
+
+  .model-dropdown {
+    left: 0;
+    right: auto;
+    width: min(380px, 100%);
+  }
+}
+
+.slider-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  z-index: 3;
 }
 </style>

@@ -1,5 +1,10 @@
 <script setup lang="ts">
-defineProps<{
+import { computed, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
+import { getAnomalies } from '../services/api'
+import type { Measurement } from '../types/api'
+
+const props = defineProps<{
   isOpen: boolean
 }>()
 
@@ -7,32 +12,118 @@ const emit = defineEmits<{
   (e: 'close'): void
 }>()
 
-const logRows = [
-  {
-    timestamp: 'Apr 23, 2024, 16:30',
-    value: '0.75 µSv/h',
-    severity: 'High',
-    source: 'Sensor A-12',
-  },
-  {
-    timestamp: 'Apr 23, 2024, 11:45',
-    value: '0.76 µSv/h',
-    severity: 'High',
-    source: 'Sensor A-12',
-  },
-  {
-    timestamp: 'Apr 22, 2024, 16:30',
-    value: '0.80 µSv/h',
-    severity: 'Critical',
-    source: 'Sensor B-03',
-  },
-  {
-    timestamp: 'Apr 22, 2024, 11:45',
-    value: '0.75 µSv/h',
-    severity: 'Medium',
-    source: 'Sensor C-07',
-  },
-]
+const router = useRouter()
+
+const anomalies = ref<Measurement[]>([])
+const searchQuery = ref('')
+const isLoading = ref(false)
+const errorMessage = ref('')
+const formatAnomalyType = (type: string | null | undefined) => {
+  if (!type || type === 'normal') return 'Anomaly'
+
+  const labels: Record<string, string> = {
+    threshold_detection: 'Threshold Detection',
+    spike: 'Spike',
+    sustained_increase: 'Sustained Increase',
+    sensor_drop: 'Sensor Drop',
+  }
+
+  return labels[type] ?? type.replaceAll('_', ' ')
+}
+
+const getSeverityType = (status: string | null | undefined) => {
+  if (status === 'Critical') return 'critical'
+  if (status === 'High') return 'high'
+  if (status === 'Normal') return 'normal'
+
+  return 'alert'
+}
+const logRows = computed(() => {
+  const query = searchQuery.value.trim().toLowerCase()
+
+  return anomalies.value
+      .filter((item) => {
+        if (!query) return true
+
+        return [
+          item.timestamp,
+          item.radiationLevel,
+          item.status,
+          item.sensorId,
+          item.location,
+          item.anomalyType,
+          item.anomalyScore,
+        ]
+            .join(' ')
+            .toLowerCase()
+            .includes(query)
+      })
+      .map((item) => ({
+        timestamp: item.timestamp,
+        value: `${Number(item.radiationLevel).toFixed(4)} µSv/h`,
+        severity: item.status,
+        severityType: getSeverityType(item.status),
+        anomalyScore: Number(item.anomalyScore ?? 0).toFixed(3),
+        anomalyType: formatAnomalyType(item.anomalyType),
+        source: item.sensorId || item.location || 'Unknown sensor',
+      }))
+})
+
+async function loadAnomalies() {
+  try {
+    isLoading.value = true
+    errorMessage.value = ''
+
+    anomalies.value = await getAnomalies(500)
+  } catch (error) {
+    console.error(error)
+    errorMessage.value = 'Anomalies could not be loaded.'
+  } finally {
+    isLoading.value = false
+  }
+}
+
+function goToDataset() {
+  emit('close')
+  router.push('/dataset')
+}
+
+function exportCsv() {
+  const header = ['timestamp', 'radiation_level', 'severity', 'source', 'anomaly_score', 'anomaly_type']
+
+  const rows = logRows.value.map((row) => [
+    row.timestamp,
+    row.value,
+    row.severity,
+    row.source,
+    row.anomalyScore,
+    row.anomalyType,
+  ])
+
+  const csvContent = [header, ...rows]
+      .map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(','))
+      .join('\n')
+
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+
+  const link = document.createElement('a')
+  link.href = url
+  link.download = 'anomalies_log.csv'
+  link.click()
+
+  URL.revokeObjectURL(url)
+}
+
+watch(
+    () => props.isOpen,
+    (isOpen) => {
+      if (isOpen) {
+        loadAnomalies()
+      }
+    },
+    { immediate: true },
+)
 </script>
 
 <template>
@@ -49,16 +140,38 @@ const logRows = [
         </div>
 
         <div class="log-toolbar">
-          <div class="log-toolbar__search">⌕ Search anomalies</div>
-          <button class="toolbar-button" type="button">Export CSV</button>
+          <input
+              v-model="searchQuery"
+              class="log-toolbar__search"
+              type="search"
+              placeholder="⌕ Search anomalies"
+          />
+
+          <button class="toolbar-button" type="button" @click="exportCsv">
+            Export CSV
+          </button>
         </div>
 
-        <div class="log-table">
+        <div v-if="isLoading" class="log-table">
+          <div class="log-table__row">
+            <span>Loading anomalies...</span>
+          </div>
+        </div>
+
+        <div v-else-if="errorMessage" class="log-table">
+          <div class="log-table__row">
+            <span>{{ errorMessage }}</span>
+          </div>
+        </div>
+
+        <div v-else class="log-table">
           <div class="log-table__head">
             <span>Timestamp</span>
             <span>Radiation Level</span>
-            <span>Severity</span>
-            <span>Source</span>
+            <span>Type</span>
+            <span>Score</span>
+            <span>Status</span>
+            <span>Sensor</span>
           </div>
 
           <div v-for="row in logRows" :key="row.timestamp" class="log-table__row">
@@ -67,9 +180,12 @@ const logRows = [
               {{ row.timestamp }}
             </span>
             <span class="accent">{{ row.value }}</span>
+            <span>{{ row.anomalyType }}</span>
+            <span class="score-value">{{ row.anomalyScore }}</span>
             <span class="severity">
-              <span class="severity-pill">{{ row.severity }}</span>
+              <span class="severity-pill":class="`severity-pill--${row.severityType}`">{{ row.severity }}</span>
             </span>
+
             <span>{{ row.source }}</span>
           </div>
         </div>
@@ -78,7 +194,7 @@ const logRows = [
           <button class="action-button action-button--secondary" type="button" @click="emit('close')">
             Close
           </button>
-          <button class="action-button" type="button">
+          <button class="action-button" type="button" @click="goToDataset">
             View Dataset
           </button>
         </div>
@@ -121,6 +237,9 @@ const logRows = [
       inset 0 1px 0 rgba(255,255,255,0.03);
   padding: 22px;
   color: #eef4ff;
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .modal-card__header {
@@ -194,7 +313,7 @@ const logRows = [
 .log-table__head,
 .log-table__row {
   display: grid;
-  grid-template-columns: 1.6fr 1fr 1fr 1fr;
+  grid-template-columns: 1.45fr 1fr 1fr 0.65fr 0.8fr 0.8fr;
   gap: 12px;
   align-items: center;
 }
@@ -234,12 +353,35 @@ const logRows = [
   height: 32px;
   padding: 0 12px;
   border-radius: 10px;
-  background: rgba(183, 78, 88, 0.32);
-  border: 1px solid rgba(255, 124, 138, 0.18);
-  color: #ffd3d8;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.severity-pill--critical {
+  background: rgba(183, 78, 88, 0.32);
+  border: 1px solid rgba(255, 124, 138, 0.18);
+  color: #ffd3d8;
+}
+
+.severity-pill--high {
+  background: rgba(255, 193, 94, 0.22);
+  border: 1px solid rgba(255, 208, 132, 0.24);
+  color: #ffe6bd;
+}
+
+.severity-pill--normal {
+  background: rgba(118, 237, 191, 0.22);
+  border: 1px solid rgba(118, 237, 191, 0.24);
+  color: #d8fff0;
+}
+
+.severity-pill--alert {
+  background: rgba(120, 151, 235, 0.16);
+  border: 1px solid rgba(120, 151, 235, 0.18);
+  color: #d7e4ff;
 }
 
 .modal-footer {
@@ -274,5 +416,18 @@ const logRows = [
   .log-table__row {
     grid-template-columns: 1fr;
   }
+}
+
+.log-toolbar__search {
+  outline: none;
+}
+
+.log-toolbar__search::placeholder {
+  color: #93a7cf;
+}
+
+.score-value {
+  color: #8fe6c6;
+  font-weight: 400;
 }
 </style>

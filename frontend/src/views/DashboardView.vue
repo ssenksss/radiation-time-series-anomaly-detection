@@ -1,17 +1,31 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import MainLayout from '../layouts/MainLayout.vue'
 import RadiationChart from '../components/RadiationChart.vue'
 import ModelTestingModal from '../components/ModelTestingModal.vue'
 import AnomaliesLogModal from '../components/AnomaliesLogModal.vue'
-import { dashboardData } from '../mock/dashboardData'
+import {
+  getAnomalies,
+  getMeasurements,
+  getModelInfo,
+  getSummary,
+} from '../services/api'
+import type { Measurement, ModelComparisonItem, ModelInfo, Summary } from '../types/api'
 
 const router = useRouter()
 
 const isModelModalOpen = ref(false)
 const isLogModalOpen = ref(false)
 const alertVisible = ref(true)
+
+const measurements = ref<Measurement[]>([])
+const anomalies = ref<Measurement[]>([])
+const summary = ref<Summary | null>(null)
+const modelInfo = ref<ModelInfo | null>(null)
+
+const isLoading = ref(true)
+const errorMessage = ref('')
 
 const openModelModal = () => {
   isModelModalOpen.value = true
@@ -36,6 +50,258 @@ const acknowledgeAlert = () => {
 const goToDataset = () => {
   router.push('/dataset')
 }
+
+const formatNumber = (value: number | null | undefined, digits = 4) => {
+  if (value === null || value === undefined) return Number(0).toFixed(digits)
+  return Number(value).toFixed(digits)
+}
+
+const formatPercent = (value: number | null | undefined) => {
+  if (value === null || value === undefined) return 'N/A'
+  return `${Number(value).toFixed(1)}%`
+}
+
+const formatMetric = (value: number | null | undefined) => {
+  if (value === null || value === undefined) return 'N/A'
+  return Number(value).toFixed(3)
+}
+
+const formatChartLabel = (timestamp: string) => {
+  const parts = timestamp.split(' ')
+  return parts[1]?.slice(0, 5) ?? timestamp
+}
+const formatAnomalyType = (type: string | null | undefined) => {
+  if (!type || type === 'normal') {
+    return 'Anomaly'
+  }
+
+  const labels: Record<string, string> = {
+    threshold_detection: 'Threshold Detection',
+    spike: 'Spike',
+    sustained_increase: 'Sustained Increase',
+    sensor_drop: 'Sensor Drop',
+  }
+
+  return labels[type] ?? type.replaceAll('_', ' ')
+}
+const latestAnomaly = computed(() => anomalies.value[0] ?? null)
+
+const showAlert = computed(() => {
+  return alertVisible.value && anomalies.value.length > 0
+})
+
+const chartLabels = computed(() =>
+    measurements.value.map((item) => formatChartLabel(item.timestamp)),
+)
+
+const chartValues = computed(() =>
+    measurements.value.map((item) => item.radiationLevel),
+)
+
+const chartAnomalyFlags = computed(() =>
+    measurements.value.map((item) => item.isAnomaly),
+)
+
+const modelAccuracy = computed(() => modelInfo.value?.accuracy ?? null)
+const activeModelName = computed(() => modelInfo.value?.currentModel ?? 'Detection Model')
+
+const comparisonItems = computed<ModelComparisonItem[]>(() => {
+  const items = modelInfo.value?.comparison ?? []
+
+  if (items.length) {
+    return items
+  }
+
+  if (modelAccuracy.value !== null && modelAccuracy.value !== undefined) {
+    return [
+      {
+        id: 'current',
+        model: activeModelName.value,
+        score: modelAccuracy.value,
+        accuracy: modelAccuracy.value,
+        precision: modelInfo.value?.precision ?? null,
+        recall: null,
+        fpr: modelInfo.value?.fpr ?? null,
+        fnr: modelInfo.value?.fnr ?? null,
+        active: true,
+        status: 'Computed',
+      },
+    ]
+  }
+
+  return []
+})
+
+
+const modelBars = computed(() =>
+    comparisonItems.value.map((item, index) => {
+      const isPending = item.status?.toLowerCase().includes('pending')
+      const score = Math.max(0, Math.min(100, Number(item.score ?? 0)))
+
+      return {
+        label: item.model,
+        percent: isPending ? 'Pending' : formatPercent(item.accuracy ?? score),
+        height: isPending ? '22px' : `${Math.max(36, Math.round(score * 0.88))}px`,
+        active: index === 0,
+        pending: isPending,
+        status: item.status,
+      }
+    }),
+)
+
+const dashboardData = computed(() => {
+  const currentLevel = summary.value?.currentLevel ?? 0
+  const threshold = summary.value?.threshold ?? 0.18
+  const totalMeasurements = summary.value?.totalMeasurements ?? 0
+  const totalAnomalies = summary.value?.totalAnomalies ?? 0
+  const latest = latestAnomaly.value
+
+  return {
+    header: {
+      title: 'Radiation Monitoring Dashboard',
+      subtitle:
+          'Interactive radiation monitoring system for anomaly detection in time-series data.',
+    },
+
+    chart: {
+      title: 'Radiation Over Time',
+      legend: {
+        radiation: 'Radiation level',
+        anomalies: 'Detected anomalies',
+        threshold: 'Threshold',
+      },
+    },
+
+    alert: {
+      title: 'ANOMALY DETECTED',
+      description: latest
+          ? `Detected ${latest.status.toLowerCase()} event at ${latest.timestamp}, radiation level ${formatNumber(latest.radiationLevel)} µSv/h.`
+          : 'An anomalous radiation event has been detected in the active dataset.',
+      buttonLabel: 'ACKNOWLEDGE',
+    },
+
+    stats: [
+      {
+        title: 'Total Measurements',
+        value: totalMeasurements.toLocaleString(),
+        meta: 'Loaded from active dataset',
+        icon: '◌',
+        danger: false,
+        hasButton: false,
+        buttonLabel: '',
+      },
+      {
+        title: 'Detected Anomalies',
+        value: totalAnomalies.toString(),
+        meta: totalAnomalies > 0 ? 'Review anomaly log' : 'No anomalies detected',
+        icon: '!',
+        danger: totalAnomalies > 0,
+        hasButton: false,
+        buttonLabel: '',
+      },
+      {
+        title: 'Model Performance',
+        value: formatPercent(modelAccuracy.value),
+        meta: activeModelName.value,
+        icon: '✦',
+        danger: false,
+        hasButton: true,
+        buttonLabel: 'View model',
+      },
+    ],
+
+    anomalyDetails: {
+      title: 'Anomaly Details',
+      columns: ['Timestamp', 'Level', 'Type', 'Status'],
+      rows: anomalies.value.slice(0, 4).map((item) => ({
+        timestamp: item.timestamp,
+        level: `${formatNumber(item.radiationLevel)} µSv/h`,
+        tag: formatAnomalyType(item.anomalyType),
+        tagType: 'type',
+        status: item.status,
+        statusType:
+            item.status === 'Critical'
+                ? 'critical'
+                : item.status === 'High'
+                    ? 'high'
+                    : item.status === 'Normal'
+                        ? 'normal'
+                        : 'alert',
+      })),
+    },
+
+    common: {
+      viewAll: 'View all',
+    },
+
+    current: {
+      label: 'Current Radiation Level',
+      value: formatNumber(currentLevel),
+      unit: 'µSv/h',
+      change: currentLevel > threshold ? 'Above threshold' : 'Within expected range',
+      source: summary.value?.datasetName ?? 'Dataset loading...',
+      datasetLabel: 'Dataset',
+    },
+
+    anomaliesLog: {
+      title: 'Anomalies Log',
+      items: anomalies.value.slice(0, 5).map((item, index) => ({
+        timestamp: item.timestamp,
+        value: `${formatNumber(item.radiationLevel)} µSv/h`,
+        status: item.status,
+        statusType:
+            item.status === 'Critical'
+                ? 'critical'
+                : item.status === 'High'
+                    ? 'high'
+                    : item.status === 'Normal'
+                        ? 'normal'
+                        : 'alert',
+        isNew: index < 2,
+      })),
+    },
+
+    modelTesting: {
+      title: 'Model Testing',
+      accuracyLabel: activeModelName.value,
+      accuracyValue: formatPercent(modelAccuracy.value),
+      progressWidth: `${Math.max(0, Math.min(100, modelAccuracy.value ?? 0))}%`,
+      source: `Precision ${formatMetric(modelInfo.value?.precision)}`,
+      action: `FPR ${formatMetric(modelInfo.value?.fpr)}`,
+      bars: modelBars.value,
+      labels: modelBars.value.map((bar) => bar.label),
+    },
+  }
+})
+
+const loadDashboardData = async () => {
+  try {
+    isLoading.value = true
+    errorMessage.value = ''
+
+    const [measurementsResponse, anomaliesResponse, summaryResponse, modelInfoResponse] =
+        await Promise.all([
+          getMeasurements(1440),
+          getAnomalies(200),
+          getSummary(),
+          getModelInfo(),
+        ])
+
+    measurements.value = measurementsResponse
+    anomalies.value = anomaliesResponse
+    summary.value = summaryResponse
+    modelInfo.value = modelInfoResponse
+  } catch (error) {
+    console.error(error)
+    errorMessage.value = 'Backend data could not be loaded. Check if FastAPI is running.'
+  } finally {
+    isLoading.value = false
+  }
+}
+
+onMounted(() => {
+  loadDashboardData()
+})
 </script>
 
 <template>
@@ -56,7 +322,15 @@ const goToDataset = () => {
         </div>
       </section>
 
-      <section class="content-grid">
+      <div v-if="isLoading" class="glass-panel">
+        Loading radiation monitoring data...
+      </div>
+
+      <div v-else-if="errorMessage" class="glass-panel">
+        {{ errorMessage }}
+      </div>
+
+      <section v-else class="content-grid">
         <div class="left-column">
           <div class="glass-panel chart-panel">
             <h2>{{ dashboardData.chart.title }}</h2>
@@ -73,9 +347,14 @@ const goToDataset = () => {
               </span>
             </div>
 
-            <RadiationChart />
+            <RadiationChart
+                :labels="chartLabels"
+                :values="chartValues"
+                :threshold="summary?.threshold ?? 0.18"
+                :anomaly-flags="chartAnomalyFlags"
+            />
 
-            <div v-if="alertVisible" class="alert-panel">
+            <div v-if="showAlert" class="alert-panel">
               <div class="alert-panel__icon">!</div>
 
               <div class="alert-panel__content">
@@ -146,13 +425,16 @@ const goToDataset = () => {
                   {{ row.status }}
                 </span>
               </div>
+
+              <div v-if="!dashboardData.anomalyDetails.rows.length" class="details-row">
+                <span>No anomalies</span>
+                <span class="accent-value">—</span>
+                <span class="table-pill table-pill--normal">Normal</span>
+                <span class="table-pill table-pill--normal">Clear</span>
+              </div>
             </div>
 
-            <div class="details-panel__footer">
-              <button class="view-all-button view-all-button--bottom" type="button" @click="openLogModal">
-                {{ dashboardData.common.viewAll }}
-              </button>
-            </div>
+
           </div>
         </div>
 
@@ -186,11 +468,22 @@ const goToDataset = () => {
                   class="log-item"
               >
                 <div class="log-item__dot"></div>
+
                 <div class="log-item__content">
                   <p>{{ item.timestamp }}</p>
                   <strong>{{ item.value }}</strong>
                 </div>
+
                 <span v-if="item.isNew" class="log-item__tag">NEW</span>
+
+              </div>
+
+              <div v-if="!dashboardData.anomaliesLog.items.length" class="log-item">
+                <div class="log-item__dot"></div>
+                <div class="log-item__content">
+                  <p>No anomalies detected</p>
+                  <strong>System clear</strong>
+                </div>
               </div>
             </div>
 
@@ -208,7 +501,10 @@ const goToDataset = () => {
             </div>
 
             <div class="progress-bar">
-              <div class="progress-bar__fill"></div>
+              <div
+                  class="progress-bar__fill"
+                  :style="{ width: dashboardData.modelTesting.progressWidth }"
+              ></div>
             </div>
 
             <div class="model-panel__meta">
@@ -216,20 +512,31 @@ const goToDataset = () => {
               <span>{{ dashboardData.modelTesting.action }}</span>
             </div>
 
-            <div class="mini-bars">
+            <div v-if="dashboardData.modelTesting.bars.length" class="mini-bars">
               <div
                   v-for="bar in dashboardData.modelTesting.bars"
-                  :key="bar.percent"
+                  :key="bar.label"
                   class="mini-bars__item"
               >
                 <span class="mini-bars__percent">{{ bar.percent }}</span>
-                <div class="mini-bars__bar" :class="`mini-bars__bar--${bar.className}`"></div>
+                <div
+                    class="mini-bars__bar"
+                    :class="{
+  'mini-bars__bar--large': bar.active,
+  'mini-bars__bar--pending': bar.pending,
+}"
+                    :style="{ height: bar.height }"
+                ></div>
               </div>
             </div>
 
-            <div class="mini-bars__labels">
-              <span>{{ dashboardData.modelTesting.labels[0] }}</span>
-              <span>{{ dashboardData.modelTesting.labels[1] }}</span>
+            <div v-if="dashboardData.modelTesting.labels.length" class="mini-bars__labels">
+              <span
+                  v-for="label in dashboardData.modelTesting.labels"
+                  :key="label"
+              >
+                {{ label }}
+              </span>
             </div>
 
             <button class="view-all-button view-all-button--full" type="button" @click="openModelModal">
@@ -471,7 +778,6 @@ const goToDataset = () => {
 }
 
 .ack-button {
-  position: relative;
   height: 42px;
   min-width: 136px;
   padding: 0 16px;
@@ -481,25 +787,6 @@ const goToDataset = () => {
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.03em;
-  box-shadow:
-      0 8px 18px rgba(217, 56, 84, 0.28),
-      inset 0 1px 0 rgba(255, 255, 255, 0.18);
-  transition: all 0.22s ease;
-}
-
-.ack-button:hover {
-  transform: translateY(-1px);
-  background: linear-gradient(180deg, rgba(255, 122, 143, 1), rgba(228, 66, 95, 1));
-  box-shadow:
-      0 10px 24px rgba(217, 56, 84, 0.34),
-      0 0 14px rgba(255, 92, 117, 0.16);
-}
-
-.ack-button:active {
-  transform: translateY(0);
-  box-shadow:
-      0 4px 10px rgba(217, 56, 84, 0.24),
-      inset 0 2px 5px rgba(0, 0, 0, 0.18);
 }
 
 .stats-row {
@@ -544,11 +831,6 @@ const goToDataset = () => {
   margin-bottom: 8px;
   color: #f1f6ff;
   font-size: 18px;
-}
-
-.stat-card h3 small {
-  color: #dbe7ff;
-  font-size: 14px;
 }
 
 .stat-card span {
@@ -639,42 +921,33 @@ const goToDataset = () => {
 .accent-value {
   color: #ffb29d;
 }
-
 .table-pill {
-  min-width: 92px;
-  height: 34px;
-  padding: 0 14px;
+  min-width: 130px;
+  min-height: 34px;
+  padding: 6px 14px;
   border-radius: 999px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  text-align: center;
+  line-height: 1.15;
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.02em;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
-  background: linear-gradient(180deg, rgba(255, 104, 126, 0.2), rgba(217, 56, 84, 0.18));
-
-
+  white-space: nowrap;
 }
 
 .table-pill--alert {
   background: linear-gradient(180deg, rgba(255, 104, 126, 0.2), rgba(217, 56, 84, 0.18));
   color: #ffdbe2;
-
   border: 1px solid rgba(255, 132, 152, 0.18);
-  box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.04),
-      0 0 10px rgba(217, 56, 84, 0.08);
 }
 
 .table-pill--normal {
   background: linear-gradient(180deg, rgba(118, 237, 191, 0.18), rgba(61, 182, 130, 0.16));
   color: #d8fff0;
   border: 1px solid rgba(118, 237, 191, 0.16);
-
-  box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.04),
-      0 0 10px rgba(118, 237, 191, 0.08);
 }
 
 .details-panel__footer {
@@ -687,7 +960,6 @@ const goToDataset = () => {
   margin-bottom: 12px;
   color: #d6dff5;
   font-size: 14px;
-
 }
 
 .current-panel__value {
@@ -751,7 +1023,6 @@ const goToDataset = () => {
 .log-item__content p {
   margin-bottom: 6px;
   color: #d0dcf1;
-
 }
 
 .log-item__content strong {
@@ -770,7 +1041,6 @@ const goToDataset = () => {
   place-items: center;
   font-size: 11px;
   font-weight: 700;
-  box-shadow: 0 0 10px rgba(217, 56, 84, 0.08);
 }
 
 .view-all-button {
@@ -823,7 +1093,7 @@ const goToDataset = () => {
 }
 
 .progress-bar__fill {
-  width: 93.4%;
+  width: 0;
   height: 100%;
   background: linear-gradient(90deg, #d3fbff, #85dfff, #99efcf);
 }
@@ -865,18 +1135,9 @@ const goToDataset = () => {
   box-shadow: 0 0 10px rgba(255, 255, 255, 0.06);
 }
 
-.mini-bars__bar--small {
-  height: 48px;
-}
-
 .mini-bars__bar--large {
-  height: 88px;
   background: linear-gradient(180deg, #d3fcff, #93deff);
   box-shadow: 0 0 16px rgba(125, 219, 255, 0.35);
-}
-
-.mini-bars__bar--medium {
-  height: 56px;
 }
 
 .mini-bars__labels {
@@ -921,5 +1182,33 @@ const goToDataset = () => {
     flex-direction: column;
     align-items: flex-start;
   }
+}
+
+.mini-bars__bar--pending {
+  background: linear-gradient(180deg, rgba(142, 165, 210, 0.35), rgba(142, 165, 210, 0.16));
+  border: 1px dashed rgba(142, 165, 210, 0.3);
+  box-shadow: none;
+}
+
+.table-pill--critical {
+  background: linear-gradient(180deg, rgba(255, 104, 126, 0.24), rgba(217, 56, 84, 0.22));
+  color: #ffdbe2;
+  border: 1px solid rgba(255, 132, 152, 0.22);
+}
+
+.table-pill--high {
+  background: linear-gradient(180deg, rgba(222, 169, 84, 0.24), rgba(224, 153, 54, 0.22));
+  color: #ffe6bd;
+  border: 1px solid rgba(255, 208, 132, 0.24);
+}
+.table-pill--normal {
+  background: linear-gradient(180deg, rgba(118, 237, 191, 0.24), rgba(61, 182, 130, 0.22));
+  color: #d8fff0;
+  border: 1px solid rgba(118, 237, 191, 0.28);
+}
+.table-pill--type {
+  background: linear-gradient(180deg, rgba(121, 140, 220, 0.16), rgba(72, 91, 160, 0.14));
+  color: #d7e4ff;
+  border: 1px solid rgba(120, 151, 235, 0.18);
 }
 </style>

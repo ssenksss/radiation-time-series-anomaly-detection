@@ -25,8 +25,34 @@ export interface Summary {
 }
 
 export interface ModelComparisonItem {
+    id: string
     model: string
     score: number
+    accuracy: number | null
+    precision: number | null
+    recall: number | null
+    fpr: number | null
+    fnr: number | null
+    active: boolean
+    status: string
+}
+
+export interface AvailableModel {
+    id: string
+    name: string
+    status: string
+}
+
+export interface SelectedModels {
+    modelA: string
+    modelB: string
+}
+
+export interface ConfusionMatrix {
+    tp: number
+    tn: number
+    fp: number
+    fn: number
 }
 
 export interface ModelInfo {
@@ -36,5 +62,13 @@ export interface ModelInfo {
     fpr: number
     fnr: number
     source: string
+    availableModels: AvailableModel[]
+    selectedModels: SelectedModels
+    confusionMatrix: ConfusionMatrix
     comparison: ModelComparisonItem[]
+}
+
+export interface AppSettings {
+    threshold: number
+    activeModel: string
 }

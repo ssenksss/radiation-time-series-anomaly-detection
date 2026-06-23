@@ -1,6 +1,10 @@
 <template>
   <div class="chart-wrapper">
-    <canvas ref="chartRef"></canvas>
+    <canvas v-show="hasData" ref="chartRef"></canvas>
+
+    <div v-if="!hasData" class="chart-empty">
+      No chart data available.
+    </div>
   </div>
 </template>
 
@@ -13,25 +17,41 @@ const props = withDefaults(
       labels?: string[]
       values?: number[]
       threshold?: number
+      anomalyFlags?: boolean[]
     }>(),
     {
-      threshold: 0.5,
+      threshold: 0.18,
     },
 )
 
-const fallbackLabels = ['Apr 16', 'Apr 17', 'Apr 18', 'Apr 20', 'Apr 21', 'Apr 22', 'Apr 23']
-const fallbackValues = [0.14, 0.12, 0.18, 0.42, 0.35, 0.80, 0.62]
+const values = computed(() => props.values ?? [])
 
-const labels = computed(() =>
-    props.labels && props.labels.length ? props.labels : fallbackLabels,
-)
+const labels = computed(() => {
+  const incomingLabels = props.labels ?? []
 
-const values = computed(() =>
-    props.values && props.values.length ? props.values : fallbackValues,
-)
+  if (!values.value.length) {
+    return []
+  }
+
+  if (incomingLabels.length === values.value.length) {
+    return incomingLabels
+  }
+
+  return values.value.map((_, index) => incomingLabels[index] ?? `#${index + 1}`)
+})
+
+const hasData = computed(() => {
+  return labels.value.length > 0 && values.value.length > 0
+})
 
 const anomalyValues = computed(() =>
-    values.value.map((value) => (value > props.threshold ? value : null)),
+    values.value.map((value, index) => {
+      if (props.anomalyFlags && props.anomalyFlags.length) {
+        return props.anomalyFlags[index] ? value : null
+      }
+
+      return value > props.threshold ? value : null
+    }),
 )
 
 const thresholdValues = computed(() =>
@@ -49,18 +69,18 @@ const destroyChart = () => {
 }
 
 const renderChart = () => {
-  if (!chartRef.value) return
+  destroyChart()
+
+  if (!chartRef.value || !hasData.value) return
 
   const ctx = chartRef.value.getContext('2d')
   if (!ctx) return
-
-  destroyChart()
 
   const gradient = ctx.createLinearGradient(0, 0, 0, 320)
   gradient.addColorStop(0, 'rgba(110, 231, 255, 0.20)')
   gradient.addColorStop(1, 'rgba(110, 231, 255, 0.01)')
 
-  const maxValue = Math.max(...values.value, props.threshold, 1)
+  const maxValue = Math.max(...values.value, props.threshold)
   const roundedMax = Math.ceil((maxValue + 0.1) * 10) / 10
 
   chartInstance = new Chart(ctx, {
@@ -131,6 +151,7 @@ const renderChart = () => {
             font: {
               size: 12,
             },
+            maxTicksLimit: 8,
           },
         },
         y: {
@@ -157,7 +178,7 @@ const renderChart = () => {
 onMounted(renderChart)
 
 watch(
-    () => [labels.value, values.value, props.threshold],
+    () => [props.labels, props.values, props.threshold, props.anomalyFlags],
     () => {
       renderChart()
     },
@@ -186,5 +207,13 @@ onBeforeUnmount(() => {
 
 .chart-wrapper canvas {
   filter: drop-shadow(0 0 10px rgba(121, 219, 255, 0.18));
+}
+
+.chart-empty {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  color: #8296be;
+  font-size: 14px;
 }
 </style>

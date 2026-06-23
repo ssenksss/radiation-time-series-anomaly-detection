@@ -27,3 +27,24 @@ dist-ssr/
 
 # ML outputs
 ml/outputs/
+# Python
+
+backend/venv/
+
+*.pyc
+
+
+# Frontend
+
+frontend/node_modules/
+
+frontend/dist/
+
+# Environment
+
+.env.local
+.env.*.local
+
+# System
+
+__MACOSX__
