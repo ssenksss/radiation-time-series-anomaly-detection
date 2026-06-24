@@ -1,46 +1,33 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
 import MainLayout from '../layouts/MainLayout.vue'
 import RadiationChart from '../components/RadiationChart.vue'
-import { useDatasetStore } from '../stores/useDatasetStore'
-import { getMeasurements, getSummary } from '../services/api'
-
-interface Measurement {
-  timestamp: string
-  radiationLevel: number
-  sensorId: string
-  location: string
-  temperature: number | null
-  humidity: number | null
-  isAnomaly: boolean
-  anomalyScore: number
-  anomalyType: string
-  status: string
-}
-
-interface Summary {
-  datasetName: string
-  totalMeasurements: number
-  totalAnomalies: number
-  currentLevel: number
-  threshold: number
-  lastUpdated: string
-}
+import {
+  getDatasets,
+  getMeasurements,
+  getSummary,
+  uploadDataset,
+} from '../services/api'
+import type { DatasetInfo, Measurement, Summary } from '../types/api'
 
 type CsvPreviewRecord = Record<string, string | number | boolean | null | undefined>
 
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const previewSectionRef = ref<HTMLElement | null>(null)
 
-const { datasetState, uploadCsv, resetDataset } = useDatasetStore()
-
 const backendMeasurements = ref<Measurement[]>([])
 const backendSummary = ref<Summary | null>(null)
+const datasets = ref<DatasetInfo[]>([])
+
 const isLoading = ref(true)
+const isUploading = ref(false)
 const errorMessage = ref('')
+const uploadStatus = ref('')
 const isCsvPreviewModalOpen = ref(false)
 
-const isCustomDatasetLoaded = computed(() => datasetState.isLoaded)
+const activeDataset = computed(() => {
+  return datasets.value.find((dataset) => dataset.isActive) ?? datasets.value[0] ?? null
+})
 
 const backendRows = computed(() =>
     backendMeasurements.value.map((row) => ({
@@ -51,24 +38,9 @@ const backendRows = computed(() =>
     })),
 )
 
-const activeRows = computed(() => {
-  if (isCustomDatasetLoaded.value) {
-    return datasetState.rows.map((row) => ({
-      label: row.label,
-      value: row.value,
-      isAnomaly: row.value > datasetState.threshold,
-      status: row.value > datasetState.threshold ? 'Anomaly' : 'Normal',
-    }))
-  }
-
-  return backendRows.value
-})
+const activeRows = computed(() => backendRows.value)
 
 const activeThreshold = computed(() => {
-  if (isCustomDatasetLoaded.value) {
-    return datasetState.threshold
-  }
-
   return backendSummary.value?.threshold ?? 0.18
 })
 
@@ -85,12 +57,14 @@ const chartValues = computed(() =>
 const chartAnomalyFlags = computed(() =>
     activeRows.value.slice(0, 12).map((row) => row.isAnomaly),
 )
+const chartRenderKey = computed(() => {
+  const datasetId = activeDataset.value?.id ?? 'no-dataset'
+  const firstLabel = chartLabels.value[0] ?? 'empty'
+  const lastLabel = chartLabels.value[chartLabels.value.length - 1] ?? 'empty'
 
+  return `${datasetId}-${chartLabels.value.length}-${firstLabel}-${lastLabel}`
+})
 const csvPreviewHeaders = computed(() => {
-  if (isCustomDatasetLoaded.value && datasetState.headers.length > 0) {
-    return datasetState.headers
-  }
-
   const firstMeasurement = backendMeasurements.value[0]
 
   if (!firstMeasurement) {
@@ -112,10 +86,6 @@ const csvPreviewHeaders = computed(() => {
 })
 
 const csvPreviewRows = computed<CsvPreviewRecord[]>(() => {
-  if (isCustomDatasetLoaded.value) {
-    return datasetState.rows.slice(0, 20).map((row) => row.record as CsvPreviewRecord)
-  }
-
   return backendMeasurements.value.slice(0, 20).map((row) => ({
     timestamp: row.timestamp,
     radiation_uSv_h: Number(row.radiationLevel).toFixed(4),
@@ -136,33 +106,20 @@ const csvPreviewGridTemplate = computed(() => {
 })
 
 const anomalyCount = computed(() => {
-  if (isCustomDatasetLoaded.value) {
-    return datasetState.rows.filter((row) => row.value > datasetState.threshold).length
-  }
-
   return backendSummary.value?.totalAnomalies ?? 0
 })
 
 const currentLevel = computed(() => {
-  if (isCustomDatasetLoaded.value) {
-    const last = datasetState.rows[datasetState.rows.length - 1]
-    return last ? `${last.value.toFixed(4)} µSv/h` : '0.0000 µSv/h'
-  }
-
   return `${Number(backendSummary.value?.currentLevel ?? 0).toFixed(4)} µSv/h`
 })
 
 const datasetName = computed(() => {
-  if (isCustomDatasetLoaded.value) {
-    return datasetState.name
-  }
-
-  return backendSummary.value?.datasetName ?? 'Loading dataset...'
+  return backendSummary.value?.datasetName ?? activeDataset.value?.name ?? 'Loading dataset...'
 })
 
 const datasetInfoText = computed(() => {
-  if (isCustomDatasetLoaded.value) {
-    return `Status: Loaded successfully · ${datasetState.uploadedAt}`
+  if (isUploading.value) {
+    return 'Status: Uploading CSV and running ML pipeline...'
   }
 
   if (isLoading.value) {
@@ -173,30 +130,23 @@ const datasetInfoText = computed(() => {
     return 'Status: Backend dataset could not be loaded.'
   }
 
-  return `Status: Loaded from FastAPI backend · ${backendSummary.value?.lastUpdated ?? 'active'}`
+  const status = activeDataset.value?.status ?? 'active'
+  const uploadedAt = activeDataset.value?.uploadedAt ?? backendSummary.value?.lastUpdated ?? 'active'
+
+  return `Status: ${status} · ${uploadedAt}`
 })
 
 const sourceText = computed(() => {
-  if (isCustomDatasetLoaded.value) {
-    return datasetState.source
-  }
-
-  return 'Backend API'
+  return activeDataset.value?.sourceType
+      ? `PostgreSQL / ${activeDataset.value.sourceType.toUpperCase()}`
+      : 'PostgreSQL backend'
 })
 
 const dataPointsText = computed(() => {
-  if (isCustomDatasetLoaded.value) {
-    return datasetState.rows.length
-  }
-
   return backendSummary.value?.totalMeasurements ?? backendMeasurements.value.length
 })
 
 const columnsText = computed(() => {
-  if (isCustomDatasetLoaded.value && datasetState.headers.length > 0) {
-    return datasetState.headers.join(', ')
-  }
-
   const firstMeasurement = backendMeasurements.value[0]
 
   if (!firstMeasurement) {
@@ -206,16 +156,25 @@ const columnsText = computed(() => {
   return Object.keys(firstMeasurement).join(', ')
 })
 
-const datasetTableRows = computed(() => [
-  {
-    name: datasetName.value,
-    uploaded: isCustomDatasetLoaded.value
-        ? datasetState.uploadedAt || 'Just now'
-        : backendSummary.value?.lastUpdated || 'Loaded from backend',
-    size: `${Math.max(Number(dataPointsText.value), 1)} rows`,
-    status: isCustomDatasetLoaded.value ? 'Loaded' : 'Active',
-  },
-])
+const datasetTableRows = computed(() => {
+  if (datasets.value.length > 0) {
+    return datasets.value.map((dataset) => ({
+      name: dataset.name,
+      uploaded: dataset.uploadedAt,
+      size: `${dataset.rowCount} rows`,
+      status: dataset.isActive ? 'Active' : dataset.status,
+    }))
+  }
+
+  return [
+    {
+      name: datasetName.value,
+      uploaded: backendSummary.value?.lastUpdated || 'Loaded from backend',
+      size: `${Math.max(Number(dataPointsText.value), 1)} rows`,
+      status: 'Active',
+    },
+  ]
+})
 
 const formatCsvCell = (row: CsvPreviewRecord, header: string) => {
   const value = row[header]
@@ -228,6 +187,7 @@ const formatCsvCell = (row: CsvPreviewRecord, header: string) => {
 }
 
 const openFilePicker = () => {
+  if (isUploading.value) return
   fileInputRef.value?.click()
 }
 
@@ -237,6 +197,28 @@ const openCsvPreviewModal = () => {
 
 const closeCsvPreviewModal = () => {
   isCsvPreviewModalOpen.value = false
+}
+
+const loadBackendDataset = async () => {
+  try {
+    isLoading.value = true
+    errorMessage.value = ''
+
+    const [measurementsResponse, summaryResponse, datasetsResponse] = await Promise.all([
+      getMeasurements(1000),
+      getSummary(),
+      getDatasets(),
+    ])
+
+    backendMeasurements.value = measurementsResponse
+    backendSummary.value = summaryResponse
+    datasets.value = datasetsResponse
+  } catch (error) {
+    console.error(error)
+    errorMessage.value = 'Backend dataset could not be loaded.'
+  } finally {
+    isLoading.value = false
+  }
 }
 
 const handleFileChange = async (event: Event) => {
@@ -252,12 +234,28 @@ const handleFileChange = async (event: Event) => {
   }
 
   try {
-    await uploadCsv(file)
+    isUploading.value = true
+    uploadStatus.value = 'Uploading CSV and running ML pipeline...'
+    errorMessage.value = ''
+
+    await uploadDataset(file)
+    await loadBackendDataset()
+
+    uploadStatus.value = 'Dataset uploaded and processed successfully.'
+
+    await nextTick()
+    scrollToPreview()
   } catch (error) {
     console.error(error)
-    alert('The CSV file could not be loaded.')
+    errorMessage.value = error instanceof Error ? error.message : 'Dataset upload failed.'
+    uploadStatus.value = ''
   } finally {
+    isUploading.value = false
     target.value = ''
+
+    window.setTimeout(() => {
+      uploadStatus.value = ''
+    }, 3500)
   }
 }
 
@@ -265,29 +263,9 @@ const scrollToPreview = () => {
   previewSectionRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
-const handleReset = () => {
-  resetDataset()
+const handleReset = async () => {
   closeCsvPreviewModal()
-}
-
-const loadBackendDataset = async () => {
-  try {
-    isLoading.value = true
-    errorMessage.value = ''
-
-    const [measurementsResponse, summaryResponse] = await Promise.all([
-      getMeasurements(1000),
-      getSummary(),
-    ])
-
-    backendMeasurements.value = measurementsResponse as Measurement[]
-    backendSummary.value = summaryResponse as Summary
-  } catch (error) {
-    console.error(error)
-    errorMessage.value = 'Backend dataset could not be loaded.'
-  } finally {
-    isLoading.value = false
-  }
+  await loadBackendDataset()
 }
 
 onMounted(() => {
@@ -325,6 +303,9 @@ onMounted(() => {
         <div v-if="errorMessage" class="dataset-error">
           {{ errorMessage }}
         </div>
+        <div v-if="uploadStatus" class="dataset-success">
+          {{ uploadStatus }}
+        </div>
 
         <div class="dataset-info">
           <div class="dataset-info__left">
@@ -338,11 +319,21 @@ onMounted(() => {
         </div>
 
         <div class="dataset-actions">
-          <button class="load-button" type="button" @click="openFilePicker">
-            Load Dataset
+          <button
+              class="load-button"
+              type="button"
+              :disabled="isUploading"
+              @click="openFilePicker"
+          >
+            {{ isUploading ? 'Processing...' : 'Load Dataset' }}
           </button>
-          <button class="ghost-button" type="button" @click="scrollToPreview">
-            View Dataset
+          <button
+              class="ghost-button"
+              type="button"
+              :disabled="isUploading"
+              @click="openFilePicker"
+          >
+            {{ isUploading ? 'Processing...' : 'Upload CSV' }}
           </button>
         </div>
 
@@ -395,6 +386,7 @@ onMounted(() => {
 
         <div class="preview-chart">
           <RadiationChart
+              :key="chartRenderKey"
               :labels="chartLabels.length ? chartLabels : undefined"
               :values="chartValues.length ? chartValues : undefined"
               :threshold="activeThreshold"
@@ -699,7 +691,8 @@ onMounted(() => {
 }
 
 .preview-chart {
-  margin-bottom: 18px;
+  height: 320px;
+  margin-bottom: 14px;
 }
 
 .preview-table {
@@ -870,5 +863,12 @@ onMounted(() => {
   .csv-modal-backdrop {
     padding: 16px;
   }
-}
+}.dataset-success {
+   margin-bottom: 18px;
+   padding: 12px 14px;
+   border-radius: 14px;
+   border: 1px solid rgba(126, 240, 191, 0.18);
+   background: rgba(126, 240, 191, 0.08);
+   color: #9ee8ce;
+ }
 </style>

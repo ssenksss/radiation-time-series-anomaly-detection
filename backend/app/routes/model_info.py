@@ -2,17 +2,14 @@ from typing import Optional
 
 from fastapi import APIRouter
 
-from app.services.data_service import get_measurements_df
-from app.services.model_service import get_model_info
-from app.services.settings_service import get_active_model
+from app.services.database_model_service import get_model_info_from_database
 
-router = APIRouter(tags=["model-info"])
+router = APIRouter(tags=["model"])
 
 
 @router.get("/model-info")
-def read_model_info(modelA: Optional[str] = None, modelB: str = "isolation_forest"):
-    df = get_measurements_df()
-
-    active_model = modelA or get_active_model()
-
-    return get_model_info(df, active_model, modelB)
+def read_model_info(
+    modelA: Optional[str] = None,
+    modelB: Optional[str] = None,
+):
+    return get_model_info_from_database(modelA, modelB)

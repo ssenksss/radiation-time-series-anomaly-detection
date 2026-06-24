@@ -1,4 +1,12 @@
-import type { AppSettings, Measurement, ModelInfo, Summary } from '../types/api'
+import type {
+    AppSettings,
+    DatasetInfo,
+    DatasetUploadResponse,
+    Measurement,
+    ModelInfo,
+    PipelineStatus,
+    Summary,
+} from '../types/api'
 
 const API_BASE_URL = 'http://127.0.0.1:8000'
 
@@ -6,7 +14,8 @@ async function request<T>(path: string): Promise<T> {
     const response = await fetch(`${API_BASE_URL}${path}`)
 
     if (!response.ok) {
-        throw new Error(`API request failed: ${path}`)
+        const error = await response.json().catch(() => null)
+        throw new Error(error?.detail ?? `API request failed: ${path}`)
     }
 
     return response.json()
@@ -47,6 +56,10 @@ export function getSettings(): Promise<AppSettings> {
     return request<AppSettings>('/settings')
 }
 
+export function getPipelineStatus(): Promise<PipelineStatus> {
+    return request<PipelineStatus>('/pipeline/status')
+}
+
 export async function updateThreshold(threshold: number): Promise<AppSettings> {
     const response = await fetch(`${API_BASE_URL}/settings/threshold`, {
         method: 'PUT',
@@ -57,7 +70,8 @@ export async function updateThreshold(threshold: number): Promise<AppSettings> {
     })
 
     if (!response.ok) {
-        throw new Error('Failed to update threshold')
+        const error = await response.json().catch(() => null)
+        throw new Error(error?.detail ?? 'Failed to update threshold')
     }
 
     return response.json()
@@ -73,7 +87,29 @@ export async function updateActiveModel(activeModel: string): Promise<AppSetting
     })
 
     if (!response.ok) {
-        throw new Error('Failed to update active model')
+        const error = await response.json().catch(() => null)
+        throw new Error(error?.detail ?? 'Failed to update active model')
+    }
+
+    return response.json()
+}
+
+export function getDatasets(): Promise<DatasetInfo[]> {
+    return request<DatasetInfo[]>('/datasets')
+}
+
+export async function uploadDataset(file: File): Promise<DatasetUploadResponse> {
+    const formData = new FormData()
+    formData.append('file', file)
+
+    const response = await fetch(`${API_BASE_URL}/datasets/upload`, {
+        method: 'POST',
+        body: formData,
+    })
+
+    if (!response.ok) {
+        const error = await response.json().catch(() => null)
+        throw new Error(error?.detail ?? 'Dataset upload failed')
     }
 
     return response.json()

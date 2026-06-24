@@ -1,8 +1,4 @@
-from fastapi import APIRouter
-
 from app.database.connection import fetch_one, fetch_all
-
-router = APIRouter(tags=["anomalies"])
 
 
 MODEL_ID_TO_NAME = {
@@ -79,6 +75,21 @@ def get_threshold() -> float:
 
 
 def classify_radiation_event(radiation_level: float, threshold: float) -> tuple[str, str]:
+    """
+    Returns:
+    anomaly_type, status
+
+    Type:
+    - normal  -> below threshold
+    - warning -> above threshold
+    - spike   -> critical peak
+
+    Status:
+    - Normal
+    - High
+    - Critical
+    """
+
     if threshold <= 0:
         return "normal", "Normal"
 
@@ -91,46 +102,48 @@ def classify_radiation_event(radiation_level: float, threshold: float) -> tuple[
     return "warning", "High"
 
 
-@router.get("/anomalies")
-def get_anomalies(limit: int = 1000):
+def get_measurements_from_database(limit: int = 1000) -> list:
     dataset_id = get_active_dataset_id()
     threshold = get_threshold()
     active_model_name = get_active_model_name()
 
     rows = fetch_all(
         """
-        SELECT
-            ar.timestamp,
-            ar.radiation_level,
-            ar.predicted_anomaly,
-            ar.anomaly_score,
-            cm.sensor_id,
-            cm.location,
-            cm.temperature,
-            cm.humidity,
-            cm.anomaly_type
-        FROM anomaly_results ar
-        JOIN feature_measurements fm
-            ON ar.feature_measurement_id = fm.id
-        JOIN clean_measurements cm
-            ON fm.clean_measurement_id = cm.id
-        WHERE ar.dataset_id = %s
-          AND ar.model_name = %s
-          AND ar.predicted_anomaly = TRUE
-          AND ar.radiation_level >= %s
-        ORDER BY ar.timestamp DESC
-        LIMIT %s;
+        SELECT *
+        FROM (
+            SELECT
+                ar.timestamp,
+                ar.radiation_level,
+                ar.predicted_anomaly,
+                ar.anomaly_score,
+                ar.status AS ml_status,
+                cm.sensor_id,
+                cm.location,
+                cm.temperature,
+                cm.humidity,
+                cm.anomaly_type
+            FROM anomaly_results ar
+            JOIN feature_measurements fm
+                ON ar.feature_measurement_id = fm.id
+            JOIN clean_measurements cm
+                ON fm.clean_measurement_id = cm.id
+            WHERE ar.dataset_id = %s
+              AND ar.model_name = %s
+            ORDER BY ar.timestamp DESC
+            LIMIT %s
+        ) latest_rows
+        ORDER BY timestamp ASC;
         """,
-        (dataset_id, active_model_name, threshold, limit),
+        (dataset_id, active_model_name, limit),
     )
 
-    anomalies = []
+    measurements = []
 
     for row in rows:
         radiation_level = float(row["radiation_level"])
         anomaly_type, status = classify_radiation_event(radiation_level, threshold)
 
-        anomalies.append(
+        measurements.append(
             {
                 "timestamp": row["timestamp"].strftime("%Y-%m-%d %H:%M:%S"),
                 "radiationLevel": round(radiation_level, 4),
@@ -138,11 +151,11 @@ def get_anomalies(limit: int = 1000):
                 "location": str(row["location"]),
                 "temperature": None if row["temperature"] is None else round(float(row["temperature"]), 2),
                 "humidity": None if row["humidity"] is None else round(float(row["humidity"]), 2),
-                "isAnomaly": True,
+                "isAnomaly": bool(row["predicted_anomaly"]),
                 "anomalyScore": round(float(row["anomaly_score"]), 4),
                 "anomalyType": anomaly_type,
                 "status": status,
             }
         )
 
-    return anomalies
+    return measurements

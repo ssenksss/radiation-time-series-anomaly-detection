@@ -9,29 +9,29 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'close'): void
+  (e: 'updated', modelInfo: ModelInfo): void
 }>()
-
 const fallbackModels: AvailableModel[] = [
-  {
-    id: 'threshold',
-    name: 'Threshold Detection',
-    status: 'implemented',
-  },
   {
     id: 'isolation_forest',
     name: 'Isolation Forest',
-    status: 'pending',
+    status: 'implemented',
   },
   {
     id: 'lof',
     name: 'Local Outlier Factor',
+    status: 'implemented',
+  },
+  {
+    id: 'rnn',
+    name: 'Recurrent Neural Network',
     status: 'pending',
   },
 ]
 
 const modelInfo = ref<ModelInfo | null>(null)
-const selectedModelA = ref('threshold')
-const selectedModelB = ref('isolation_forest')
+const selectedModelA = ref('isolation_forest')
+const selectedModelB = ref('lof')
 
 const isLoading = ref(false)
 const errorMessage = ref('')
@@ -140,7 +140,6 @@ function formatMetric(value: number | null | undefined) {
 function modelStatusLabel(model: AvailableModel) {
   return model.status === 'implemented' ? 'Available' : 'Pending ML'
 }
-
 async function loadModelInfo() {
   try {
     isLoading.value = true
@@ -151,6 +150,8 @@ async function loadModelInfo() {
     modelInfo.value = response
     selectedModelA.value = response.selectedModels.modelA
     selectedModelB.value = response.selectedModels.modelB
+
+    emit('updated', response)
   } catch (error) {
     console.error(error)
     errorMessage.value = 'Model data could not be loaded. Check if FastAPI is running.'
@@ -171,7 +172,7 @@ function handleModelAChange() {
 function handleModelBChange() {
   if (selectedModelA.value === selectedModelB.value) {
     const replacement = availableModels.value.find((model) => model.id !== selectedModelB.value)
-    selectedModelA.value = replacement?.id ?? 'threshold'
+    selectedModelA.value = replacement?.id ?? 'isolation_forest'
   }
 
   loadModelInfo()

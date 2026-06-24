@@ -34,7 +34,9 @@ const openModelModal = () => {
 const closeModelModal = () => {
   isModelModalOpen.value = false
 }
-
+const updateModelInfoFromModal = (updatedModelInfo: ModelInfo) => {
+  modelInfo.value = updatedModelInfo
+}
 const openLogModal = () => {
   isLogModalOpen.value = true
 }
@@ -70,20 +72,27 @@ const formatChartLabel = (timestamp: string) => {
   const parts = timestamp.split(' ')
   return parts[1]?.slice(0, 5) ?? timestamp
 }
+
 const formatAnomalyType = (type: string | null | undefined) => {
-  if (!type || type === 'normal') {
-    return 'Anomaly'
-  }
+  if (!type) return 'Normal'
+
+  const normalizedType = type.toLowerCase().replaceAll(' ', '_')
 
   const labels: Record<string, string> = {
-    threshold_detection: 'Threshold Detection',
+    normal: 'Normal',
+    warning: 'Warning',
     spike: 'Spike',
-    sustained_increase: 'Sustained Increase',
-    sensor_drop: 'Sensor Drop',
+
+    threshold_detection: 'Warning',
+    model_detection: 'Warning',
+    ml_detected: 'Warning',
+    sustained_increase: 'Warning',
+    sensor_drop: 'Warning',
   }
 
-  return labels[type] ?? type.replaceAll('_', ' ')
+  return labels[normalizedType] ?? normalizedType.replaceAll('_', ' ')
 }
+
 const latestAnomaly = computed(() => anomalies.value[0] ?? null)
 
 const showAlert = computed(() => {
@@ -132,6 +141,25 @@ const comparisonItems = computed<ModelComparisonItem[]>(() => {
   return []
 })
 
+const modelPanelPrimary = computed(() => {
+  return comparisonItems.value[0] ?? null
+})
+
+const modelPanelName = computed(() => {
+  return modelPanelPrimary.value?.model ?? activeModelName.value
+})
+
+const modelPanelAccuracy = computed(() => {
+  return modelPanelPrimary.value?.accuracy ?? modelAccuracy.value
+})
+
+const modelPanelPrecision = computed(() => {
+  return modelPanelPrimary.value?.precision ?? modelInfo.value?.precision
+})
+
+const modelPanelFpr = computed(() => {
+  return modelPanelPrimary.value?.fpr ?? modelInfo.value?.fpr
+})
 
 const modelBars = computed(() =>
     comparisonItems.value.map((item, index) => {
@@ -263,11 +291,11 @@ const dashboardData = computed(() => {
 
     modelTesting: {
       title: 'Model Testing',
-      accuracyLabel: activeModelName.value,
-      accuracyValue: formatPercent(modelAccuracy.value),
-      progressWidth: `${Math.max(0, Math.min(100, modelAccuracy.value ?? 0))}%`,
-      source: `Precision ${formatMetric(modelInfo.value?.precision)}`,
-      action: `FPR ${formatMetric(modelInfo.value?.fpr)}`,
+      accuracyLabel: modelPanelName.value,
+      accuracyValue: formatPercent(modelPanelAccuracy.value),
+      progressWidth: `${Math.max(0, Math.min(100, modelPanelAccuracy.value ?? 0))}%`,
+      source: `Precision ${formatMetric(modelPanelPrecision.value)}`,
+      action: `FPR ${formatMetric(modelPanelFpr.value)}`,
       bars: modelBars.value,
       labels: modelBars.value.map((bar) => bar.label),
     },
@@ -433,8 +461,6 @@ onMounted(() => {
                 <span class="table-pill table-pill--normal">Clear</span>
               </div>
             </div>
-
-
           </div>
         </div>
 
@@ -451,7 +477,10 @@ onMounted(() => {
             <p class="current-panel__change">{{ dashboardData.current.change }}</p>
 
             <div class="current-panel__footer">
-              <span>{{ dashboardData.current.source }}</span>
+              <span class="current-panel__dataset-name">
+                {{ dashboardData.current.source }}
+              </span>
+
               <button class="csv-button" type="button" @click="goToDataset">
                 {{ dashboardData.current.datasetLabel }}
               </button>
@@ -475,7 +504,6 @@ onMounted(() => {
                 </div>
 
                 <span v-if="item.isNew" class="log-item__tag">NEW</span>
-
               </div>
 
               <div v-if="!dashboardData.anomaliesLog.items.length" class="log-item">
@@ -522,9 +550,9 @@ onMounted(() => {
                 <div
                     class="mini-bars__bar"
                     :class="{
-  'mini-bars__bar--large': bar.active,
-  'mini-bars__bar--pending': bar.pending,
-}"
+                    'mini-bars__bar--large': bar.active,
+                    'mini-bars__bar--pending': bar.pending,
+                  }"
                     :style="{ height: bar.height }"
                 ></div>
               </div>
@@ -546,7 +574,11 @@ onMounted(() => {
         </div>
       </section>
 
-      <ModelTestingModal :is-open="isModelModalOpen" @close="closeModelModal" />
+      <ModelTestingModal
+          :is-open="isModelModalOpen"
+          @close="closeModelModal"
+          @updated="updateModelInfoFromModal"
+      />
       <AnomaliesLogModal :is-open="isLogModalOpen" @close="closeLogModal" />
     </div>
   </MainLayout>
@@ -855,7 +887,8 @@ onMounted(() => {
   background: linear-gradient(180deg, rgba(255, 193, 94, 0.92), rgba(224, 153, 54, 0.92));
   border-color: rgba(255, 208, 132, 0.24);
   color: #2c1f10;
-  font-weight: 700;
+  font-weight: 800;
+  flex: 0 0 auto;
 }
 
 .details-panel__header,
@@ -921,6 +954,7 @@ onMounted(() => {
 .accent-value {
   color: #ffb29d;
 }
+
 .table-pill {
   min-width: 130px;
   min-height: 34px;
@@ -944,16 +978,32 @@ onMounted(() => {
   border: 1px solid rgba(255, 132, 152, 0.18);
 }
 
-.table-pill--normal {
-  background: linear-gradient(180deg, rgba(118, 237, 191, 0.18), rgba(61, 182, 130, 0.16));
-  color: #d8fff0;
-  border: 1px solid rgba(118, 237, 191, 0.16);
+.table-pill--critical {
+  background: linear-gradient(180deg, rgba(255, 104, 126, 0.24), rgba(217, 56, 84, 0.22));
+  color: #ffdbe2;
+  border: 1px solid rgba(255, 132, 152, 0.22);
 }
 
-.details-panel__footer {
-  margin-top: 14px;
-  display: flex;
-  justify-content: center;
+.table-pill--high {
+  background: linear-gradient(180deg, rgba(222, 169, 84, 0.24), rgba(224, 153, 54, 0.22));
+  color: #ffe6bd;
+  border: 1px solid rgba(255, 208, 132, 0.24);
+}
+
+.table-pill--normal {
+  background: linear-gradient(180deg, rgba(118, 237, 191, 0.24), rgba(61, 182, 130, 0.22));
+  color: #d8fff0;
+  border: 1px solid rgba(118, 237, 191, 0.28);
+}
+
+.table-pill--type {
+  background: linear-gradient(180deg, rgba(121, 140, 220, 0.16), rgba(72, 91, 160, 0.14));
+  color: #d7e4ff;
+  border: 1px solid rgba(120, 151, 235, 0.18);
+}
+
+.current-panel {
+  min-width: 0;
 }
 
 .current-panel__label {
@@ -967,17 +1017,20 @@ onMounted(() => {
   align-items: baseline;
   gap: 6px;
   margin-bottom: 10px;
+  min-width: 0;
 }
 
 .sparkle {
   color: #ff995d;
   font-size: 22px;
+  flex: 0 0 auto;
 }
 
 .current-panel__value strong {
   font-size: 38px;
   color: #f3f8ff;
   line-height: 1;
+  letter-spacing: -0.03em;
 }
 
 .current-panel__value span:last-child {
@@ -994,6 +1047,19 @@ onMounted(() => {
 .current-panel__footer {
   color: #a5b6d8;
   font-size: 14px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.current-panel__dataset-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #a5b6d8;
 }
 
 .log-list {
@@ -1027,7 +1093,9 @@ onMounted(() => {
 
 .log-item__content strong {
   color: #ff9d93;
-  font-size: 18px;
+  font-size: 16px;
+  font-weight: 500;
+
 }
 
 .log-item__tag {
@@ -1053,11 +1121,6 @@ onMounted(() => {
   min-width: 88px;
   height: 32px;
   font-size: 12px;
-}
-
-.view-all-button--bottom {
-  min-width: 90px;
-  height: 34px;
 }
 
 .view-all-button--full {
@@ -1140,6 +1203,12 @@ onMounted(() => {
   box-shadow: 0 0 16px rgba(125, 219, 255, 0.35);
 }
 
+.mini-bars__bar--pending {
+  background: linear-gradient(180deg, rgba(142, 165, 210, 0.35), rgba(142, 165, 210, 0.16));
+  border: 1px dashed rgba(142, 165, 210, 0.3);
+  box-shadow: none;
+}
+
 .mini-bars__labels {
   display: flex;
   justify-content: space-between;
@@ -1182,33 +1251,5 @@ onMounted(() => {
     flex-direction: column;
     align-items: flex-start;
   }
-}
-
-.mini-bars__bar--pending {
-  background: linear-gradient(180deg, rgba(142, 165, 210, 0.35), rgba(142, 165, 210, 0.16));
-  border: 1px dashed rgba(142, 165, 210, 0.3);
-  box-shadow: none;
-}
-
-.table-pill--critical {
-  background: linear-gradient(180deg, rgba(255, 104, 126, 0.24), rgba(217, 56, 84, 0.22));
-  color: #ffdbe2;
-  border: 1px solid rgba(255, 132, 152, 0.22);
-}
-
-.table-pill--high {
-  background: linear-gradient(180deg, rgba(222, 169, 84, 0.24), rgba(224, 153, 54, 0.22));
-  color: #ffe6bd;
-  border: 1px solid rgba(255, 208, 132, 0.24);
-}
-.table-pill--normal {
-  background: linear-gradient(180deg, rgba(118, 237, 191, 0.24), rgba(61, 182, 130, 0.22));
-  color: #d8fff0;
-  border: 1px solid rgba(118, 237, 191, 0.28);
-}
-.table-pill--type {
-  background: linear-gradient(180deg, rgba(121, 140, 220, 0.16), rgba(72, 91, 160, 0.14));
-  color: #d7e4ff;
-  border: 1px solid rgba(120, 151, 235, 0.18);
 }
 </style>

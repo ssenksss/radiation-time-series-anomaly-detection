@@ -196,11 +196,7 @@ onBeforeUnmount(() => {
   height: 320px;
   border-radius: 18px;
   overflow: hidden;
-  background:
-      linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px),
-      linear-gradient(180deg, rgba(8, 13, 28, 0.58), rgba(8, 13, 28, 0.92));
-  background-size: 100% 48px, 48px 100%, 100% 100%;
+  background: linear-gradient(180deg, rgba(8, 13, 28, 0.58), rgba(8, 13, 28, 0.92));
   border: 1px solid rgba(120, 151, 235, 0.08);
   padding: 12px 14px 8px;
 }

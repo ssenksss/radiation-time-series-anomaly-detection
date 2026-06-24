@@ -119,16 +119,23 @@ function parseBooleanValue(value: unknown) {
 }
 
 function formatAnomalyType(type: string | null | undefined) {
-  if (!type || type === 'normal') return 'Anomaly'
+  if (!type) return 'Normal'
+
+  const normalizedType = type.toLowerCase().replaceAll(' ', '_')
 
   const labels: Record<string, string> = {
-    threshold_detection: 'Threshold Detection',
+    normal: 'Normal',
+    warning: 'Warning',
     spike: 'Spike',
-    sustained_increase: 'Sustained Increase',
-    sensor_drop: 'Sensor Drop',
+
+    threshold_detection: 'Warning',
+    model_detection: 'Warning',
+    ml_detected: 'Warning',
+    sustained_increase: 'Warning',
+    sensor_drop: 'Warning',
   }
 
-  return labels[type] ?? type.replaceAll('_', ' ')
+  return labels[normalizedType] ?? normalizedType.replaceAll('_', ' ')
 }
 
 function getStatusType(status: string | null | undefined) {
@@ -233,13 +240,13 @@ const uploadedMeasurements = computed<Measurement[]>(() => {
 
     const isAnomaly = explicitAnomaly ?? radiationLevel > threshold
 
-    const rawType = normalizeText(
-        getRecordValue(record, ['anomaly_type', 'type', 'event_type']),
-        isAnomaly ? 'threshold_detection' : 'normal',
-    )
+    let anomalyType = 'normal'
 
-    const anomalyType = isAnomaly ? rawType.replace('normal', 'threshold_detection') : 'normal'
-
+    if (radiationLevel >= threshold * 2) {
+      anomalyType = 'spike'
+    } else if (radiationLevel >= threshold) {
+      anomalyType = 'warning'
+    }
     return {
       timestamp: row.label,
       radiationLevel,
@@ -272,10 +279,13 @@ const uploadedMeasurements = computed<Measurement[]>(() => {
         ? Number((distances[index] / maxDistance).toFixed(3))
         : 0
 
+
     let status = 'Normal'
 
-    if (row.isAnomaly) {
-      status = threshold > 0 && row.radiationLevel >= threshold * 2 ? 'Critical' : 'High'
+    if (threshold > 0 && row.radiationLevel >= threshold * 2) {
+      status = 'Critical'
+    } else if (threshold > 0 && row.radiationLevel >= threshold) {
+      status = 'High'
     }
 
     return {

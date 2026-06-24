@@ -19,16 +19,23 @@ const searchQuery = ref('')
 const isLoading = ref(false)
 const errorMessage = ref('')
 const formatAnomalyType = (type: string | null | undefined) => {
-  if (!type || type === 'normal') return 'Anomaly'
+  if (!type) return 'Normal'
+
+  const normalizedType = type.toLowerCase().replaceAll(' ', '_')
 
   const labels: Record<string, string> = {
-    threshold_detection: 'Threshold Detection',
+    normal: 'Normal',
+    warning: 'Warning',
     spike: 'Spike',
-    sustained_increase: 'Sustained Increase',
-    sensor_drop: 'Sensor Drop',
+
+    threshold_detection: 'Warning',
+    model_detection: 'Warning',
+    ml_detected: 'Warning',
+    sustained_increase: 'Warning',
+    sensor_drop: 'Warning',
   }
 
-  return labels[type] ?? type.replaceAll('_', ' ')
+  return labels[normalizedType] ?? normalizedType.replaceAll('_', ' ')
 }
 
 const getSeverityType = (status: string | null | undefined) => {

@@ -2,15 +2,18 @@
 import { computed, onMounted, ref } from 'vue'
 import MainLayout from '../layouts/MainLayout.vue'
 import RadiationChart from '../components/RadiationChart.vue'
+import type { PipelineStatus } from '../types/api'
 import { useNotificationSettingsStore } from '../stores/useNotificationSettingsStore'
 import {
   getMeasurements,
   getModelInfo,
+  getPipelineStatus,
   getSettings,
   getSummary,
   updateActiveModel,
   updateThreshold,
 } from '../services/api'
+
 interface Measurement {
   timestamp: string
   radiationLevel: number
@@ -48,39 +51,56 @@ interface SelectedModels {
   modelB: string
 }
 
+interface ModelComparisonItem {
+  id: string
+  model: string
+  score: number | null
+  accuracy: number | null
+  precision: number | null
+  recall: number | null
+  fpr: number | null
+  fnr: number | null
+  totalRecords?: number
+  totalAnomalies?: number
+  active: boolean
+  status: string
+}
+
 interface ModelInfo {
   currentModel: string
   accuracy: number
   precision: number | null
+  recall?: number | null
   fpr: number | null
   fnr?: number | null
   source?: string
   availableModels?: AvailableModel[]
   selectedModels?: SelectedModels
+  comparison?: ModelComparisonItem[]
 }
 
 const fallbackModels: AvailableModel[] = [
   {
-    id: 'threshold',
-    name: 'Threshold Detection',
-    status: 'implemented',
-  },
-  {
     id: 'isolation_forest',
     name: 'Isolation Forest',
-    status: 'pending',
+    status: 'implemented',
   },
   {
     id: 'lof',
     name: 'Local Outlier Factor',
+    status: 'implemented',
+  },
+  {
+    id: 'rnn',
+    name: 'Recurrent Neural Network',
     status: 'pending',
   },
 ]
 
 const modelDescriptions: Record<string, string> = {
-  threshold: 'Rule-based detection using the selected radiation threshold. This model is currently implemented in the backend.',
-  isolation_forest: 'Unsupervised ML model planned for the next phase. It is visible here, but not available for selection yet.',
-  lof: 'Local density-based anomaly detection model planned for the ML phase. It is visible here, but not available for selection yet.',
+  isolation_forest: 'Unsupervised anomaly detection model currently used as the primary model.',
+  lof: 'Local density-based anomaly detection model implemented for comparison with Isolation Forest.',
+  rnn: 'Sequence-based neural network model planned for a future phase.',
 }
 
 const summary = ref<Summary | null>(null)
@@ -88,7 +108,7 @@ const modelInfo = ref<ModelInfo | null>(null)
 const measurements = ref<Measurement[]>([])
 const editableThreshold = ref(0.18)
 
-const selectedModel = ref('threshold')
+const selectedModel = ref('isolation_forest')
 const isModelDropdownOpen = ref(false)
 
 const { notificationSettings, saveNotificationSettings } = useNotificationSettingsStore()
@@ -100,6 +120,8 @@ const emailStatus = ref('')
 const emailStatusType = ref<'success' | 'warning'>('success')
 const isLoading = ref(true)
 const isModelLoading = ref(false)
+const isPipelineRunning = ref(false)
+const pipelineStatus = ref<PipelineStatus | null>(null)
 const errorMessage = ref('')
 
 const thresholdNumber = computed(() => {
@@ -156,30 +178,48 @@ const isSelectedModelImplemented = computed(() => {
   return modelStatus.value === 'implemented'
 })
 
-
+const selectedModelMetrics = computed(() => {
+  return modelInfo.value?.comparison?.find((item) => item.id === selectedModel.value) ?? null
+})
 
 const accuracyValue = computed(() => {
   if (!isSelectedModelImplemented.value) return 'Pending'
-  if (modelInfo.value?.accuracy === undefined) return 'N/A'
 
-  return `${Number(modelInfo.value.accuracy).toFixed(1)}%`
+  const accuracy = selectedModelMetrics.value?.accuracy ?? modelInfo.value?.accuracy
+
+  if (accuracy === null || accuracy === undefined) return 'N/A'
+
+  return `${Number(accuracy).toFixed(1)}%`
 })
 
 const precisionValue = computed(() => {
   if (!isSelectedModelImplemented.value) return 'Pending'
-  if (modelInfo.value?.precision === null || modelInfo.value?.precision === undefined) return 'N/A'
 
-  return Number(modelInfo.value.precision).toFixed(3)
+  const precision = selectedModelMetrics.value?.precision ?? modelInfo.value?.precision
+
+  if (precision === null || precision === undefined) return 'N/A'
+
+  return Number(precision).toFixed(3)
 })
 
 const fprValue = computed(() => {
   if (!isSelectedModelImplemented.value) return 'Pending'
-  if (modelInfo.value?.fpr === null || modelInfo.value?.fpr === undefined) return 'N/A'
 
-  return Number(modelInfo.value.fpr).toFixed(3)
+  const fpr = selectedModelMetrics.value?.fpr ?? modelInfo.value?.fpr
+
+  if (fpr === null || fpr === undefined) return 'N/A'
+
+  return Number(fpr).toFixed(3)
 })
 
 const contaminationValue = computed(() => {
+  const metricTotal = selectedModelMetrics.value?.totalRecords ?? 0
+  const metricAnomalies = selectedModelMetrics.value?.totalAnomalies ?? 0
+
+  if (metricTotal > 0) {
+    return (metricAnomalies / metricTotal).toFixed(3)
+  }
+
   const total = summary.value?.totalMeasurements ?? 0
   const anomalies = summary.value?.totalAnomalies ?? 0
 
@@ -235,6 +275,7 @@ const chartRenderKey = computed(() => {
   const lastLabel = chartLabels.value[chartLabels.value.length - 1] ?? 'empty'
 
   return [
+    selectedModel.value,
     editableThreshold.value.toFixed(2),
     chartValues.value.length,
     firstLabel,
@@ -291,44 +332,103 @@ const selectModel = async (model: AvailableModel) => {
     isModelLoading.value = false
   }
 }
+const delay = (milliseconds: number) => {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, milliseconds)
+  })
+}
 
-const saveChanges = async () => {
+const refreshSettingsDashboardData = async (threshold: number) => {
+  const [summaryResponse, modelInfoResponse, measurementsResponse] = await Promise.all([
+    getSummary(),
+    getModelInfo(selectedModel.value, getSecondaryModelForComparison(selectedModel.value)),
+    getMeasurements(200),
+  ])
+
+  summary.value = {
+    ...(summaryResponse as Summary),
+    threshold,
+  }
+
+  modelInfo.value = modelInfoResponse as ModelInfo
+  measurements.value = measurementsResponse as Measurement[]
+  editableThreshold.value = threshold
+}
+
+const waitForPipelineToFinish = async () => {
+  const maxAttempts = 120
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const status = await getPipelineStatus()
+    pipelineStatus.value = status
+
+    if (status.status === 'success') {
+      return status
+    }
+
+    if (status.status === 'failed') {
+      throw new Error(status.errorMessage ?? status.message ?? 'ML pipeline failed.')
+    }
+
+    if (status.status === 'running') {
+      const elapsedSeconds = Math.round((attempt * 750) / 1000)
+      saveStatus.value = `ML pipeline is running in background... ${elapsedSeconds}s`
+    } else {
+      saveStatus.value = 'Waiting for ML pipeline to start...'
+    }
+
+    await delay(750)
+  }
+
+  throw new Error('ML pipeline took too long to finish.')
+}
+  const saveChanges = async () => {
   const selectedThreshold = editableThreshold.value
 
   try {
-    saveStatus.value = 'Saving settings...'
+    saveStatus.value = 'Saving settings and starting ML pipeline...'
 
-    await Promise.all([
-      updateThreshold(selectedThreshold),
-      updateActiveModel(selectedModel.value),
-    ])
+    await updateActiveModel(selectedModel.value)
+
+    const settingsResponse = await updateThreshold(selectedThreshold)
+
+    pipelineStatus.value = settingsResponse.pipeline ?? null
+    isPipelineRunning.value = true
 
     saveNotificationSettings()
 
-    const [summaryResponse, modelInfoResponse, measurementsResponse] = await Promise.all([
-      getSummary(),
-      getModelInfo(selectedModel.value, getSecondaryModelForComparison(selectedModel.value)),
-      getMeasurements(200),
-    ])
+    summary.value = summary.value
+        ? {
+          ...summary.value,
+          threshold: selectedThreshold,
+        }
+        : summary.value
 
-    summary.value = {
-      ...(summaryResponse as Summary),
-      threshold: selectedThreshold,
-    }
-
-    modelInfo.value = modelInfoResponse as ModelInfo
-    measurements.value = measurementsResponse as Measurement[]
     editableThreshold.value = selectedThreshold
 
-    saveStatus.value = `Settings saved. Active model: ${modelName.value}.`
+    saveStatus.value = 'Threshold saved. ML pipeline started in background.'
+
+    await waitForPipelineToFinish()
+
+    saveStatus.value = 'ML pipeline finished. Reloading metrics...'
+    isModelLoading.value = true
+
+    await refreshSettingsDashboardData(selectedThreshold)
+
+    saveStatus.value = `Settings saved. Models retrained with threshold ${selectedThreshold.toFixed(2)} µSv/h.`
   } catch (error) {
     console.error(error)
-    saveStatus.value = 'Settings could not be saved.'
+    saveStatus.value = error instanceof Error
+        ? error.message
+        : 'Settings could not be saved.'
+  } finally {
+    isPipelineRunning.value = false
+    isModelLoading.value = false
   }
 
   window.setTimeout(() => {
     saveStatus.value = ''
-  }, 2500)
+  }, 5000)
 }
 
 const sendTestNotification = () => {
@@ -364,7 +464,7 @@ const loadSettingsData = async () => {
       getMeasurements(200),
     ])
 
-    selectedModel.value = settingsResponse.activeModel || 'threshold'
+    selectedModel.value = settingsResponse.activeModel || 'isolation_forest'
 
     const modelInfoResponse = await getModelInfo(
         selectedModel.value,
@@ -506,8 +606,14 @@ onMounted(() => {
           </div>
 
           <div class="save-row">
-            <button class="save-button" type="button" @click="saveChanges">Save Changes</button>
-            <span v-if="saveStatus" class="feedback feedback--success">{{ saveStatus }}</span>
+            <button
+                class="save-button"
+                type="button"
+                :disabled="isPipelineRunning || isModelLoading"
+                @click="saveChanges"
+            >
+              {{ isPipelineRunning ? 'Retraining...' : 'Save Changes' }}
+            </button>            <span v-if="saveStatus" class="feedback feedback--success">{{ saveStatus }}</span>
           </div>
         </div>
 
@@ -1226,5 +1332,9 @@ onMounted(() => {
   opacity: 0;
   cursor: pointer;
   z-index: 3;
+}
+.save-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 </style>

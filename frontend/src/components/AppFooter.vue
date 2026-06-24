@@ -1,17 +1,7 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { useDatasetStore } from '../stores/useDatasetStore'
-
-const { datasetState } = useDatasetStore()
-
 const currentYear = new Date().getFullYear()
-
-const datasetText = computed(() => {
-  if (!datasetState.isLoaded) return 'Demo dataset active'
-
-  return `${datasetState.rows.length.toLocaleString()} measurements loaded`
-})
 </script>
+
 
 <template>
   <footer class="app-footer">

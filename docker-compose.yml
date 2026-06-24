@@ -1,0 +1,18 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: radiation_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: radiation_monitoring
+      POSTGRES_USER: radiation_user
+      POSTGRES_PASSWORD: radiation_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - radiation_postgres_data:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+      - ./database/seed_settings.sql:/docker-entrypoint-initdb.d/02_seed_settings.sql
+
+volumes:
+  radiation_postgres_data:

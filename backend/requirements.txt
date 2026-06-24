@@ -3,3 +3,7 @@ uvicorn[standard]
 pandas
 numpy
 pydantic
+python-dotenv
+psycopg2-binary
+scikit-learn
+python-multipart

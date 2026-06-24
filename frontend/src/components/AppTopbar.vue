@@ -14,6 +14,9 @@ const emit = defineEmits<{
   (event: 'toggle-sidebar'): void
 }>()
 
+const ALERTS_LAST_SEEN_KEY = 'radiation-monitoring-alerts-last-seen'
+const ALERTS_LAST_SIGNATURE_KEY = 'radiation-monitoring-alerts-last-signature'
+
 const router = useRouter()
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const isUploading = ref(false)
@@ -22,6 +25,8 @@ const isProfileOpen = ref(false)
 const isAlertsLoading = ref(false)
 const alertError = ref('')
 const recentAlerts = ref<Measurement[]>([])
+const lastSeenAlertTimestamp = ref(localStorage.getItem(ALERTS_LAST_SEEN_KEY) ?? '')
+const lastAlertSignature = ref(localStorage.getItem(ALERTS_LAST_SIGNATURE_KEY) ?? '')
 
 const { datasetState, uploadCsv } = useDatasetStore()
 const { notificationSettings } = useNotificationSettingsStore()
@@ -32,22 +37,81 @@ const datasetLabel = computed(() =>
 
 const inAppAlertsEnabled = computed(() => notificationSettings.inAppAlertsEnabled)
 
+const latestAlertTimestamp = computed(() => {
+  return recentAlerts.value[0]?.timestamp ?? ''
+})
+
+const currentAlertSignature = computed(() => {
+  const latest = recentAlerts.value[0]
+
+  if (!latest) return ''
+
+  return [
+    latest.timestamp,
+    latest.sensorId,
+    latest.radiationLevel,
+    latest.anomalyScore,
+  ].join('|')
+})
+
+const unreadAlerts = computed(() => {
+  if (!inAppAlertsEnabled.value) return []
+
+  if (!lastSeenAlertTimestamp.value) {
+    return recentAlerts.value.slice(0, 1)
+  }
+
+  return recentAlerts.value.filter((alertItem) => {
+    return alertItem.timestamp > lastSeenAlertTimestamp.value
+  })
+})
+
 const visibleAlertCount = computed(() => {
   if (!inAppAlertsEnabled.value) return 0
 
-  return recentAlerts.value.length
+  return Math.min(unreadAlerts.value.length, 9)
+})
+
+const hasNewAlertBatch = computed(() => {
+  if (!inAppAlertsEnabled.value) return false
+  if (!currentAlertSignature.value) return false
+
+  return currentAlertSignature.value !== lastAlertSignature.value
 })
 
 const alertButtonLabel = computed(() => {
   if (!inAppAlertsEnabled.value) return 'In-app alerts disabled'
-  if (visibleAlertCount.value === 0) return 'No active in-app alerts'
+  if (visibleAlertCount.value === 0 && !hasNewAlertBatch.value) return 'No new in-app alerts'
+  if (visibleAlertCount.value === 1 || hasNewAlertBatch.value) return '1 new in-app alert'
 
-  return `${visibleAlertCount.value} active in-app alerts`
+  return `${visibleAlertCount.value} new in-app alerts`
+})
+
+const alertHeaderSubtitle = computed(() => {
+  if (!inAppAlertsEnabled.value) return 'Disabled'
+  if (visibleAlertCount.value > 0) return `${visibleAlertCount.value} new · ${notificationSettings.selectedAlertSeverity}`
+
+  return `No new alerts · ${notificationSettings.selectedAlertSeverity}`
 })
 
 const sidebarButtonLabel = computed(() => {
   return props.isSidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'
 })
+
+const markAlertsAsSeen = () => {
+  const latestTimestamp = latestAlertTimestamp.value
+  const latestSignature = currentAlertSignature.value
+
+  if (latestTimestamp) {
+    lastSeenAlertTimestamp.value = latestTimestamp
+    localStorage.setItem(ALERTS_LAST_SEEN_KEY, latestTimestamp)
+  }
+
+  if (latestSignature) {
+    lastAlertSignature.value = latestSignature
+    localStorage.setItem(ALERTS_LAST_SIGNATURE_KEY, latestSignature)
+  }
+}
 
 const loadAlertFeed = async () => {
   if (!inAppAlertsEnabled.value) {
@@ -77,6 +141,7 @@ const toggleAlerts = async () => {
 
   if (isAlertsOpen.value) {
     await loadAlertFeed()
+    markAlertsAsSeen()
   }
 }
 
@@ -138,7 +203,25 @@ const formatAlertTime = (timestamp: string) => {
   const parts = timestamp.split(' ')
   return parts[1]?.slice(0, 5) ?? timestamp
 }
+const formatAlertType = (type: string | null | undefined) => {
+  if (!type) return 'Radiation event'
 
+  const normalizedType = type.toLowerCase().replaceAll(' ', '_')
+
+  const labels: Record<string, string> = {
+    normal: 'Normal',
+    warning: 'Warning',
+    spike: 'Spike',
+
+    threshold_detection: 'Warning',
+    model_detection: 'Warning',
+    ml_detected: 'Warning',
+    sustained_increase: 'Warning',
+    sensor_drop: 'Warning',
+  }
+
+  return labels[normalizedType] ?? normalizedType.replaceAll('_', ' ')
+}
 watch(
     () => notificationSettings.inAppAlertsEnabled,
     (enabled) => {
@@ -154,6 +237,8 @@ watch(
 onMounted(() => {
   loadAlertFeed()
 })
+
+
 </script>
 
 <template>
@@ -215,8 +300,12 @@ onMounted(() => {
             :aria-label="alertButtonLabel"
             @click="toggleAlerts"
         >
-          <span v-if="visibleAlertCount > 0" class="icon-button__badge">{{ visibleAlertCount }}</span>
-
+          <span
+           v-if="visibleAlertCount > 0 || hasNewAlertBatch"
+            class="icon-button__badge"
+            >
+            {{ visibleAlertCount > 0 ? visibleAlertCount : 1 }}
+          </span>
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M18 9.8C18 6.6 15.6 4 12 4C8.4 4 6 6.6 6 9.8V13.6L4.8 16.2C4.6 16.7 4.9 17.2 5.4 17.2H18.6C19.1 17.2 19.4 16.7 19.2 16.2L18 13.6V9.8Z" />
             <path d="M9.8 19C10.2 19.9 11 20.5 12 20.5C13 20.5 13.8 19.9 14.2 19" />
@@ -227,9 +316,19 @@ onMounted(() => {
           <div class="dropdown-panel__header">
             <div>
               <strong>In-app alerts</strong>
-              <span>{{ notificationSettings.selectedAlertSeverity }} · {{ notificationSettings.selectedNotificationFrequency }}</span>
+              <span>{{ alertHeaderSubtitle }} · {{ notificationSettings.selectedNotificationFrequency }}</span>
             </div>
-            <button class="text-button" type="button" @click="goToSettings">Settings</button>
+
+            <div class="alerts-header-actions">
+    <span
+        class="alerts-status-pill"
+        :class="{ 'alerts-status-pill--active': visibleAlertCount > 0 || hasNewAlertBatch }"
+    >
+      {{ visibleAlertCount > 0 || hasNewAlertBatch ? 'New' : 'Seen' }}
+    </span>
+
+              <button class="text-button" type="button" @click="goToSettings">Settings</button>
+            </div>
           </div>
 
           <div v-if="!inAppAlertsEnabled" class="empty-state">
@@ -248,15 +347,14 @@ onMounted(() => {
           </div>
 
           <div v-else-if="recentAlerts.length === 0" class="empty-state">
-            <strong>No active alerts.</strong>
-            <span>The latest measurements are within the configured rules.</span>
+            <strong>No new alerts.</strong>
+            <span>Recent anomaly events were already reviewed.</span>
           </div>
 
           <div v-else class="alert-list">
             <article v-for="item in recentAlerts" :key="`${item.timestamp}-${item.sensorId}`" class="alert-item">
               <div class="alert-item__top">
-                <strong>{{ item.anomalyType || 'Radiation anomaly' }}</strong>
-                <span>{{ formatAlertTime(item.timestamp) }}</span>
+                <strong>{{ formatAlertType(item.anomalyType) }}</strong>                <span>{{ formatAlertTime(item.timestamp) }}</span>
               </div>
               <p>{{ item.location }} · {{ item.sensorId }}</p>
               <div class="alert-item__meta">
@@ -850,5 +948,26 @@ onMounted(() => {
   .dataset-button {
     display: none;
   }
+}
+.alerts-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.alerts-status-pill {
+  padding: 5px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(120, 151, 235, 0.12);
+  background: rgba(255,255,255,0.04);
+  color: #90a5cd;
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.alerts-status-pill--active {
+  border-color: rgba(255, 179, 106, 0.2);
+  background: rgba(255, 179, 106, 0.1);
+  color: #ffb36a;
 }
 </style>

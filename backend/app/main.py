@@ -1,10 +1,14 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
 from app.routes.settings import router as settings_router
 from app.routes.measurements import router as measurements_router
 from app.routes.anomalies import router as anomalies_router
 from app.routes.summary import router as summary_router
 from app.routes.model_info import router as model_info_router
+from app.routes.datasets import router as datasets_router
+from app.routes.pipeline import router as pipeline_router
+
 
 app = FastAPI(
     title="Radiation Monitoring API",
@@ -28,6 +32,9 @@ app.include_router(anomalies_router)
 app.include_router(summary_router)
 app.include_router(model_info_router)
 app.include_router(settings_router)
+app.include_router(datasets_router)
+app.include_router(pipeline_router)
+
 
 @app.get("/")
 def health_check():
@@ -41,5 +48,9 @@ def health_check():
             "/model-info",
             "/settings",
             "/settings/threshold",
+            "/datasets",
+            "/datasets/upload",
+            "/pipeline/status",
+            "/pipeline/run",
         ],
     }

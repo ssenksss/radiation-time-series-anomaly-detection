@@ -1,43 +1,54 @@
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, BackgroundTasks, HTTPException
+from pydantic import BaseModel
 
-from app.services.settings_service import (
-    get_settings,
-    update_active_model,
-    update_threshold,
+from app.services.database_settings_service import (
+    get_settings_from_database,
+    update_threshold_in_database,
+    update_active_model_in_database,
 )
-from app.services.data_service import refresh_dataset_cache
+from app.services.pipeline_service import start_pipeline_in_background
+
 
 router = APIRouter(tags=["settings"])
 
 
 class ThresholdUpdateRequest(BaseModel):
-    threshold: float = Field(ge=0, le=10)
+    threshold: float
 
 
-class ActiveModelUpdateRequest(BaseModel):
+class ModelUpdateRequest(BaseModel):
     activeModel: str
 
 
 @router.get("/settings")
 def read_settings():
-    return get_settings()
-
+    try:
+        return get_settings_from_database()
+    except Exception as error:
+        raise HTTPException(status_code=400, detail=str(error))
 
 @router.put("/settings/threshold")
-def update_threshold_route(payload: ThresholdUpdateRequest):
-    settings = update_threshold(payload.threshold)
+def update_threshold(
+        payload: ThresholdUpdateRequest,
+        background_tasks: BackgroundTasks,
+):
+    try:
+        settings = update_threshold_in_database(payload.threshold)
+        pipeline_status = start_pipeline_in_background(
+            background_tasks,
+            mode="threshold-update",
+        )
 
-    # Kada se promeni threshold, ponovo se računaju anomaly podaci
-    refresh_dataset_cache()
-
-    return settings
-
+        return {
+            **settings,
+            "pipeline": pipeline_status,
+        }
+    except Exception as error:
+        raise HTTPException(status_code=400, detail=str(error))
 
 @router.put("/settings/model")
-def update_active_model_route(payload: ActiveModelUpdateRequest):
+def update_model(payload: ModelUpdateRequest):
     try:
-        settings = update_active_model(payload.activeModel)
-        return settings
-    except ValueError as error:
+        return update_active_model_in_database(payload.activeModel)
+    except Exception as error:
         raise HTTPException(status_code=400, detail=str(error))
