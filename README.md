@@ -1,9 +1,8 @@
 # Radiation Monitoring Anomaly Detection System
 
-An interactive web-based prototype for radiation level monitoring, anomaly detection, model evaluation, and dataset analysis.
-The system combines a Vue dashboard, FastAPI backend, PostgreSQL database, and Python machine learning pipeline for detecting anomalous radiation measurements in time-series data.
+An interactive web-based prototype for radiation level monitoring, anomaly detection, model evaluation, dataset processing, and alert simulation. The system combines a Vue 3 dashboard, FastAPI backend, PostgreSQL analytical database, and Python machine learning pipeline for detecting anomalous radiation measurements in time-series data.
 
-This project was developed as part of a Bachelor’s thesis and extended to demonstrate a complete analytical workflow: CSV data ingestion, database storage, ELT processing, feature engineering, machine learning, model evaluation, and dashboard visualization.
+This project was developed as part of a Bachelor’s thesis and extended to demonstrate a complete analytical workflow: external CSV/ZIP data ingestion, database storage, ELT processing, feature engineering, machine learning, model evaluation, and dashboard visualization.
 
 ---
 
@@ -11,168 +10,285 @@ This project was developed as part of a Bachelor’s thesis and extended to demo
 
 The goal of this project is to simulate a radiation monitoring system that can:
 
-* load radiation measurement datasets from CSV files,
-* store raw and processed data in a PostgreSQL database,
-* transform the data through an ELT pipeline,
-* apply machine learning models for anomaly detection,
-* calculate model evaluation metrics,
-* visualize radiation trends, anomalies, and model performance through a dashboard.
+- load radiation measurement datasets from CSV or ZIP files,
+- support both a labeled sample dataset and external real measurement datasets,
+- store raw and processed data in a PostgreSQL database,
+- transform the data through an ELT-style pipeline,
+- apply machine learning models for anomaly detection,
+- calculate model evaluation metrics when labeled data is available,
+- use threshold-based event detection for unlabeled real datasets,
+- visualize radiation trends, anomalies, threshold events, alerts, and model performance through a dashboard.
 
-The current version uses a mock radiation dataset. The architecture is prepared so that real measurement data can later replace the mock CSV without changing the main application flow.
+The application is a **research prototype**, not a production radiation safety system.
 
 ---
 
-## 2. Main Features
+## 2. Dataset Support
+
+The system supports two dataset scenarios.
+
+### 2.1 Labeled Sample Dataset
+
+The repository includes a labeled sample dataset:
+
+```text
+backend/app/data/mock_radiation_measurements.csv
+```
+
+This dataset is used for testing supervised evaluation metrics such as:
+
+- accuracy,
+- precision,
+- recall,
+- false positive rate,
+- false negative rate,
+- confusion matrix.
+
+The sample dataset is useful for demonstrating model evaluation because it contains anomaly labels.
+
+### 2.2 Real CSV / ZIP Datasets
+
+The application also supports external real radiation datasets uploaded through the Dataset page.
+
+Supported formats:
+
+- `.csv`
+- `.zip` containing one or more CSV files
+
+Real datasets may not contain manually labeled anomalies. In that case, the system does not display fake supervised accuracy. Instead, it shows:
+
+- threshold events,
+- threshold rate,
+- detected anomalies,
+- anomaly rate,
+- total records,
+- model score,
+- evaluation mode.
+
+This makes the prototype suitable for both academic model evaluation and real-data monitoring scenarios.
+
+---
+
+## 3. Main Features
 
 ### Dashboard
 
 The dashboard provides a central overview of the monitoring system, including:
 
-* radiation level time-series chart,
-* highlighted anomaly points,
-* current radiation level,
-* total detected anomalies,
-* active alert status,
-* model testing summary,
-* recent anomaly log,
-* dataset shortcut,
-* notification alert indicator.
+- radiation level time-series chart,
+- threshold line,
+- highlighted anomaly/event points,
+- current radiation level,
+- total detected anomalies/events,
+- active alert status,
+- summary cards,
+- model testing summary,
+- recent anomaly log,
+- dataset shortcut,
+- notification alert indicator.
 
 ### Dataset Management
 
-The application supports CSV dataset handling. Uploaded or mock datasets are treated as external data sources and stored in PostgreSQL.
+The Dataset page supports:
 
-Each dataset can be processed through the pipeline and used as the active dataset for dashboard visualization and model evaluation.
+- CSV upload,
+- ZIP upload with multiple CSV files,
+- active dataset selection,
+- dataset metadata,
+- dataset preview,
+- number of records,
+- active/evaluated dataset status.
 
-### PostgreSQL Database Layer
+Uploaded datasets are treated as external data sources and stored in PostgreSQL. Each dataset can be processed through the pipeline and used as the active dataset for dashboard visualization, anomaly detection, and model evaluation.
 
-The system uses PostgreSQL as the central storage layer.
+### Detection Logic
 
-The database stores:
+The system supports two complementary detection concepts:
 
-* dataset metadata,
-* raw CSV measurements,
-* cleaned measurements,
-* engineered features,
-* anomaly detection results,
-* model evaluation metrics,
-* application settings such as threshold and active model.
+#### 1. Threshold-based event detection
 
-### ELT Pipeline
-
-The data pipeline follows an ELT-style structure:
+Records where the radiation level is greater than or equal to the selected threshold are treated as threshold events.
 
 ```text
-CSV dataset
-↓
-raw_measurements
-↓
-clean_measurements
-↓
-feature_measurements
-↓
-anomaly_results
-↓
-model_metrics
+radiation level >= threshold → event / anomaly
+radiation level < threshold  → normal
 ```
 
-The pipeline includes:
+This logic is especially useful for real datasets without manually labeled anomalies.
 
-* CSV ingestion,
-* timestamp parsing,
-* column standardization,
-* missing value handling,
-* data cleaning,
-* feature engineering,
-* model training,
-* model evaluation,
-* database update.
+#### 2. Machine learning anomaly detection
 
-### Machine Learning
+The system applies unsupervised machine learning models on engineered time-series features in order to detect unusual measurement patterns.
 
-The prototype currently implements two anomaly detection models:
+Currently implemented models:
 
-* Isolation Forest
-* Local Outlier Factor
+- Isolation Forest
+- Local Outlier Factor
 
-A third model is included as a planned future improvement:
+Planned future model:
 
-* Recurrent Neural Network
-
-The active model can be selected from the Settings page. When the detection threshold is changed, the backend starts a fast background pipeline that retrains only the active model and updates the model metrics.
+- Recurrent Neural Network
 
 ### Model Testing
 
-The Model Testing interface allows comparison between implemented anomaly detection models.
+The Model Testing interface allows comparison between anomaly detection models.
 
-The following metrics are displayed:
+For labeled datasets, it displays supervised metrics:
 
-* accuracy,
-* precision,
-* recall,
-* false positive rate,
-* false negative rate,
-* confusion matrix,
-* total predicted anomalies.
+- accuracy,
+- precision,
+- recall,
+- false positive rate,
+- false negative rate,
+- confusion matrix,
+- total predicted anomalies.
+
+For real unlabeled datasets, it displays unsupervised indicators:
+
+- model score,
+- detected anomalies,
+- anomaly rate,
+- total records,
+- evaluation mode.
+
+Pending models do not display fake metrics.
 
 ### Settings
 
 The Settings page allows configuration of:
 
-* detection threshold,
-* active anomaly detection model,
-* notification options,
-* threshold preview chart.
+- detection threshold,
+- active anomaly detection model,
+- threshold preview,
+- dataset range,
+- threshold event count,
+- threshold event rate,
+- notification options,
+- threshold preview chart.
 
-Changing the threshold triggers an optimized background ML pipeline. The dashboard and model metrics are refreshed after the pipeline finishes.
+Changing the threshold triggers a background ML pipeline and refreshes the model metrics after processing.
 
 ### Notifications
 
-The prototype includes in-app notification logic for anomaly alerts. The alert icon shows only new or unseen alerts, instead of constantly displaying a fixed number of past anomalies.
+The prototype includes in-app notification logic for anomaly alerts. The alert icon shows new or unseen alerts instead of constantly displaying a fixed number of past anomalies.
 
 ---
 
-## 3. Technology Stack
+## 4. Technology Stack
 
 ### Frontend
 
-* Vue 3
-* TypeScript
-* Vite
-* Chart.js
-* Pinia
-* Vue Router
+- Vue 3
+- TypeScript
+- Vite
+- Vue Router
+- Pinia
+- Chart.js
+- Custom CSS
 
 ### Backend
 
-* Python
-* FastAPI
-* Uvicorn
-* pandas
-* NumPy
-* scikit-learn
-* psycopg2
-* python-dotenv
+- Python
+- FastAPI
+- Uvicorn
+- PostgreSQL
+- psycopg2
+- python-dotenv
 
-### Database
+### Data / Machine Learning
 
-* PostgreSQL
-* Docker Compose support
-* SQL schema initialization
+- pandas
+- NumPy
+- scikit-learn
+- Isolation Forest
+- Local Outlier Factor
+- StandardScaler
+- evaluation metrics from scikit-learn
 
-### Machine Learning
+### Infrastructure
 
-* Isolation Forest
-* Local Outlier Factor
-* StandardScaler
-* evaluation metrics from scikit-learn
+- Docker Compose for PostgreSQL
+- Git / GitHub
 
 ---
 
-## 4. Project Structure
+## 5. Architecture
+
+The system is organized into four main layers:
+
+```text
+External CSV / ZIP dataset
+        ↓
+FastAPI upload endpoint
+        ↓
+PostgreSQL analytical database
+        ↓
+Python ELT + ML pipeline
+        ↓
+Vue dashboard
+```
+
+### Frontend Layer
+
+The frontend is responsible for:
+
+- UI/UX,
+- dashboard visualization,
+- chart rendering,
+- anomaly/event log,
+- dataset management interface,
+- settings interface,
+- model testing modal,
+- communication with FastAPI endpoints.
+
+### Backend Layer
+
+The backend is responsible for:
+
+- API endpoints,
+- dataset upload handling,
+- pipeline execution,
+- reading data from PostgreSQL,
+- sending processed results to the frontend,
+- settings updates,
+- active model and threshold configuration.
+
+### PostgreSQL Analytical Layer
+
+PostgreSQL is used as the central analytical storage layer.
+
+The database stores:
+
+- dataset metadata,
+- raw measurements,
+- cleaned measurements,
+- engineered features,
+- anomaly detection results,
+- model metrics,
+- application settings.
+
+### ML Pipeline Layer
+
+The Python ML pipeline is responsible for:
+
+- CSV/ZIP ingestion,
+- column mapping,
+- unit normalization,
+- raw data loading,
+- data cleaning,
+- feature engineering,
+- Isolation Forest training,
+- LOF training,
+- model evaluation,
+- saving results and metrics back to PostgreSQL.
+
+---
+
+## 6. Project Structure
 
 ```text
 radiation-time-series-anomaly-detection/
+│
 ├── backend/
 │   ├── app/
 │   │   ├── database/
@@ -193,15 +309,22 @@ radiation-time-series-anomaly-detection/
 │   │   │   ├── database_summary_service.py
 │   │   │   ├── dataset_upload_service.py
 │   │   │   └── pipeline_service.py
+│   │   ├── data/
+│   │   │   └── mock_radiation_measurements.csv
 │   │   └── main.py
 │   ├── requirements.txt
 │   └── run.py
+│
+├── database/
+│   ├── schema.sql
+│   ├── seed_settings.sql
+│   └── README.md
 │
 ├── frontend/
 │   ├── src/
 │   │   ├── components/
 │   │   ├── layouts/
-│   │   ├── modals/
+│   │   ├── router/
 │   │   ├── services/
 │   │   ├── stores/
 │   │   ├── types/
@@ -210,10 +333,9 @@ radiation-time-series-anomaly-detection/
 │   └── vite.config.ts
 │
 ├── ml/
-│   ├── datasets/
-│   │   └── mock_radiation_measurements.csv
 │   ├── scripts/
 │   │   ├── create_features.py
+│   │   ├── csv_column_mapper.py
 │   │   ├── data_preprocessing.py
 │   │   ├── db.py
 │   │   ├── evaluate_model.py
@@ -221,61 +343,62 @@ radiation-time-series-anomaly-detection/
 │   │   ├── run_ml_pipeline.py
 │   │   ├── train_isolation_forest.py
 │   │   └── train_lof.py
+│   ├── datasets/
 │   └── outputs/
-│
-├── database/
-│   ├── schema.sql
-│   ├── seed_settings.sql
-│   └── README.md
 │
 ├── docker-compose.yml
 ├── .env.example
 ├── .gitignore
+├── LICENSE
 └── README.md
 ```
 
 ---
 
-## 5. Database Design
+## 7. Database Design
 
 The PostgreSQL database contains the following main tables:
 
-### `datasets`
+### datasets
 
-Stores metadata about uploaded or mock datasets.
+Stores metadata about uploaded or sample datasets.
 
-### `raw_measurements`
+### raw_measurements
 
-Stores original measurement records imported from CSV.
+Stores original measurement records imported from CSV files.
 
-### `clean_measurements`
+### clean_measurements
 
 Stores cleaned and standardized measurement data.
 
-### `feature_measurements`
+### feature_measurements
 
-Stores engineered features prepared for machine learning.
+Stores engineered time-series features prepared for machine learning.
 
-### `anomaly_results`
+### anomaly_results
 
-Stores prediction results generated by machine learning models.
+Stores prediction results generated by anomaly detection models.
 
-### `model_metrics`
+### model_metrics
 
 Stores evaluation metrics for each model and dataset.
 
-### `app_settings`
+### app_settings
 
-Stores application settings such as threshold, active model, and active dataset.
+Stores application settings such as:
+
+- active threshold,
+- active model,
+- active dataset.
 
 ---
 
-## 6. Analytical Workflow
+## 8. Analytical Workflow
 
-The current mock workflow is:
+The general workflow is:
 
 ```text
-mock_radiation_measurements.csv
+CSV / ZIP dataset
 ↓
 PostgreSQL raw_measurements
 ↓
@@ -296,16 +419,17 @@ Vue dashboard
 
 This satisfies the analytical system requirement by combining:
 
-* external data source simulation,
-* database storage,
-* ELT transformation,
-* machine learning,
-* model evaluation,
-* dashboard presentation.
+- external data source ingestion,
+- database storage,
+- ELT transformation,
+- feature engineering,
+- machine learning,
+- model evaluation,
+- dashboard presentation.
 
 ---
 
-## 7. Machine Learning Pipeline
+## 9. Data Processing Pipeline
 
 The ML pipeline is located in:
 
@@ -319,6 +443,12 @@ The full pipeline is used when importing or processing a dataset:
 
 ```bash
 python ml/scripts/run_ml_pipeline.py --mode full
+```
+
+or with an external dataset:
+
+```bash
+python ml/scripts/run_ml_pipeline.py --file path/to/dataset.csv
 ```
 
 It performs:
@@ -335,6 +465,8 @@ Isolation Forest training
 LOF training
 ↓
 model evaluation
+↓
+database update
 ```
 
 ### Fast threshold update pipeline
@@ -359,7 +491,27 @@ This prevents the application from running the full pipeline every time the thre
 
 ---
 
-## 8. API Endpoints
+## 10. CSV Column Mapping
+
+The system includes a CSV column mapper that supports different column names for:
+
+- timestamp,
+- radiation value,
+- radiation unit,
+- sensor ID,
+- location,
+- temperature,
+- humidity,
+- anomaly label,
+- anomaly type.
+
+The mapper also handles unit normalization. For example, values in `nSv/h` are converted into `µSv/h`.
+
+If a dataset contains both `location` and `sensor_id`, the UI can display both. If the dataset contains only location information, the UI displays only the location.
+
+---
+
+## 11. API Endpoints
 
 Main backend endpoints:
 
@@ -380,7 +532,7 @@ POST /pipeline/run
 
 ---
 
-## 9. Environment Configuration
+## 12. Environment Configuration
 
 Create a `.env` file in the project root based on `.env.example`.
 
@@ -394,11 +546,9 @@ The `.env` file should not be committed to GitHub.
 
 ---
 
-## 10. Running the Project
+## 13. Running the Project
 
 ### 1. Start PostgreSQL
-
-If Docker Compose is configured:
 
 ```bash
 docker compose up -d
@@ -415,13 +565,18 @@ psql -U radiation_user -d radiation_monitoring -f database/seed_settings.sql
 
 Depending on local PostgreSQL configuration, connection parameters may need to be adjusted.
 
-### 3. Start the backend
+### 3. Create and activate backend environment
 
 ```bash
 cd backend
-python -m venv venv
+python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
+```
+
+### 4. Start the backend
+
+```bash
 uvicorn app.main:app --reload
 ```
 
@@ -431,7 +586,7 @@ Backend runs at:
 http://127.0.0.1:8000
 ```
 
-### 4. Run the ML pipeline for the mock dataset
+### 5. Run the ML pipeline for the sample dataset
 
 From the project root:
 
@@ -439,7 +594,7 @@ From the project root:
 python ml/scripts/run_ml_pipeline.py --mode full
 ```
 
-### 5. Start the frontend
+### 6. Start the frontend
 
 ```bash
 cd frontend
@@ -453,70 +608,103 @@ Frontend runs at:
 http://localhost:5173
 ```
 
----
+### 7. Upload a real dataset
 
-## 11. Mock Data Phase
+Use the Dataset page to upload:
 
-The current version uses a mock radiation measurement dataset:
+- a CSV file,
+- or a ZIP file containing multiple CSV files.
 
-```text
-ml/datasets/mock_radiation_measurements.csv
-```
-
-This dataset simulates radiation time-series measurements and contains labels that allow evaluation of anomaly detection performance.
-
-The system is prepared for real CSV data. When real measurements become available, they can be uploaded through the application or processed through the same database and ML pipeline.
+The uploaded dataset is processed through the same PostgreSQL and ML pipeline.
 
 ---
 
-## 12. Current Status
+## 14. Evaluation Logic
+
+### Labeled sample dataset
+
+The sample dataset contains anomaly labels, so the system can calculate supervised metrics:
+
+- accuracy,
+- precision,
+- recall,
+- false positive rate,
+- false negative rate,
+- confusion matrix.
+
+### Real unlabeled datasets
+
+Real radiation datasets may not contain manually verified anomaly labels.
+
+In that case, the system does not display fake supervised accuracy. Instead, it displays:
+
+- threshold events,
+- threshold rate,
+- detected anomalies,
+- anomaly rate,
+- total records,
+- model score,
+- evaluation mode.
+
+This distinction is important because real monitoring datasets often do not contain ground-truth anomaly labels.
+
+---
+
+## 15. Current Status
 
 Implemented:
 
-* Vue dashboard interface
-* FastAPI backend
-* PostgreSQL database integration
-* CSV dataset ingestion
-* raw, clean, feature and result data layers
-* Isolation Forest model
-* Local Outlier Factor model
-* model comparison
-* model metrics
-* confusion matrix
-* threshold configuration
-* active model configuration
-* background ML pipeline
-* fast threshold update pipeline
-* anomaly log
-* dataset management
-* notification UI logic
+- Vue dashboard interface,
+- FastAPI backend,
+- PostgreSQL database integration,
+- sample labeled dataset support,
+- real CSV/ZIP dataset upload,
+- raw, clean, feature and result data layers,
+- CSV column mapping,
+- unit normalization,
+- ELT-style processing,
+- data cleaning,
+- feature engineering,
+- Isolation Forest model,
+- Local Outlier Factor model,
+- model comparison,
+- model metrics,
+- confusion matrix for labeled datasets,
+- threshold configuration,
+- active model configuration,
+- background ML pipeline,
+- fast threshold update pipeline,
+- anomaly/event log,
+- dataset management,
+- threshold preview,
+- notification UI logic.
 
 Planned future improvements:
 
-* real radiation dataset integration,
-* real-time data streaming,
-* IoT sensor connection,
-* advanced sequence-based models,
-* predictive analytics,
-* export reports,
-* user authentication.
+- real-time data streaming,
+- IoT sensor connection,
+- advanced sequence-based models,
+- predictive analytics,
+- export reports,
+- user authentication.
 
 ---
 
-## 13. Academic Context
+## 16. Academic Context
 
 This project demonstrates how machine learning and interactive visualization can improve radiation monitoring systems.
 
 Compared to traditional threshold-only monitoring, the prototype introduces:
 
-* automated anomaly detection,
-* adaptive model-based analysis,
-* model comparison,
-* structured data storage,
-* transparent evaluation metrics,
-* interactive dashboard interpretation.
+- automated anomaly detection,
+- threshold-based event detection,
+- adaptive model-based analysis,
+- model comparison,
+- structured database storage,
+- transparent evaluation metrics,
+- interactive dashboard interpretation.
 
-The project also demonstrates a complete data workflow suitable for an analytical prototype:
+The project also demonstrates a complete data workflow suitable for an analytical/data science prototype:
 
 ```text
 external data source
@@ -525,6 +713,8 @@ database storage
 ↓
 ELT processing
 ↓
+feature engineering
+↓
 machine learning
 ↓
 evaluation
@@ -532,26 +722,37 @@ evaluation
 dashboard visualization
 ```
 
+This makes the project suitable as an analytical monitoring prototype and as a Bachelor’s thesis project.
+
 ---
 
-## 14. Notes
+## 17. Limitations
 
 This is a prototype application developed for academic purposes.
-The current dataset is synthetic/mock data and should not be used for real radiation safety decisions.
 
-Real deployment would require:
+The system should not be used for real radiation safety decisions without:
 
-* validated measurement data,
-* calibrated sensors,
-* real-time ingestion,
-* domain expert validation,
-* production-grade alerting,
-* security and authentication.
+- validated measurement data,
+- calibrated sensors,
+- domain expert validation,
+- production-grade alerting,
+- security and authentication,
+- real-time ingestion infrastructure.
+
+Real unlabeled datasets cannot produce true supervised accuracy metrics unless manually verified anomaly labels are available.
 
 ---
 
-## 15. Author
+## 18. Acknowledgements
 
-Ksenija Raković
-Bachelor’s Thesis Project
+The author would like to thank the collaborators from the Vinča Institute of Nuclear Sciences for providing access to real radiation measurement data and for supporting the practical validation of the prototype.
+
+The real dataset was used only for academic and research purposes within the scope of this Bachelor’s thesis prototype.
+
+---
+
+## 19. Author
+
+Ksenija Raković  
+Bachelor’s Thesis Project  
 Radiation Monitoring and Anomaly Detection Prototype

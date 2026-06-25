@@ -1,9 +1,4 @@
 
-To treba izbrisati. `.gitignore` ne sme da ima markdown ogradu.
-
-Stavi ovakav `.gitignore`:
-
-```gitignore
 # Python
 __pycache__/
 *.py[cod]
@@ -54,6 +49,16 @@ ml/outputs/*
 # Local data files
 backend/app/data/*.csv
 !backend/app/data/.gitkeep
+
+# Data lake generated files
+ml/data_lake/raw/*
+ml/data_lake/bronze/*
+ml/data_lake/silver/*
+ml/data_lake/gold/*
+!ml/data_lake/raw/.gitkeep
+!ml/data_lake/bronze/.gitkeep
+!ml/data_lake/silver/.gitkeep
+!ml/data_lake/gold/.gitkeep
 
 # System
 .DS_Store
