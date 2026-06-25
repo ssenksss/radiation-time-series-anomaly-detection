@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { getAnomalies } from '../services/api'
+import { getAnomalies, getSummary, uploadDataset } from '../services/api'
 import { useDatasetStore } from '../stores/useDatasetStore'
 import { useNotificationSettingsStore } from '../stores/useNotificationSettingsStore'
-import type { Measurement } from '../types/api'
+import type { Measurement, Summary } from '../types/api'
 
 const props = defineProps<{
   isSidebarCollapsed?: boolean
@@ -25,15 +25,38 @@ const isProfileOpen = ref(false)
 const isAlertsLoading = ref(false)
 const alertError = ref('')
 const recentAlerts = ref<Measurement[]>([])
+const activeSummary = ref<Summary | null>(null)
 const lastSeenAlertTimestamp = ref(localStorage.getItem(ALERTS_LAST_SEEN_KEY) ?? '')
 const lastAlertSignature = ref(localStorage.getItem(ALERTS_LAST_SIGNATURE_KEY) ?? '')
 
-const { datasetState, uploadCsv } = useDatasetStore()
+const { datasetState } = useDatasetStore()
 const { notificationSettings } = useNotificationSettingsStore()
 
-const datasetLabel = computed(() =>
-    datasetState.isLoaded ? datasetState.name : 'Select CSV dataset',
-)
+const formatDatasetName = (name: string | null | undefined) => {
+  const value = name?.trim()
+
+  if (!value) return ''
+
+  if (value === 'mock_radiation_measurements.csv') {
+    return 'Mock radiation dataset'
+  }
+
+  return value.endsWith('.csv') ? value : `${value}.csv`
+}
+
+const datasetLabel = computed(() => {
+  const activeDatasetName = formatDatasetName(activeSummary.value?.datasetName)
+
+  if (activeDatasetName) {
+    return activeDatasetName
+  }
+
+  if (datasetState.isLoaded) {
+    return formatDatasetName(datasetState.name)
+  }
+
+  return 'Select dataset'
+})
 
 const inAppAlertsEnabled = computed(() => notificationSettings.inAppAlertsEnabled)
 
@@ -113,6 +136,14 @@ const markAlertsAsSeen = () => {
   }
 }
 
+const loadActiveSummary = async () => {
+  try {
+    activeSummary.value = await getSummary()
+  } catch (error) {
+    console.error(error)
+  }
+}
+
 const loadAlertFeed = async () => {
   if (!inAppAlertsEnabled.value) {
     recentAlerts.value = []
@@ -160,19 +191,23 @@ const handleFileChange = async (event: Event) => {
 
   if (!file) return
 
-  if (!file.name.toLowerCase().endsWith('.csv')) {
-    alert('Please select a CSV file.')
+  const filename = file.name.toLowerCase()
+
+  if (!filename.endsWith('.csv') && !filename.endsWith('.zip')) {
+    alert('Please select a CSV file or a ZIP file containing CSV files.')
     target.value = ''
     return
   }
 
   try {
     isUploading.value = true
-    await uploadCsv(file)
+    await uploadDataset(file)
+    await loadActiveSummary()
+    await loadAlertFeed()
     await router.push('/dataset')
   } catch (error) {
     console.error(error)
-    alert('The CSV file could not be loaded.')
+    alert('The dataset file could not be loaded.')
   } finally {
     isUploading.value = false
     target.value = ''
@@ -203,6 +238,7 @@ const formatAlertTime = (timestamp: string) => {
   const parts = timestamp.split(' ')
   return parts[1]?.slice(0, 5) ?? timestamp
 }
+
 const formatAlertType = (type: string | null | undefined) => {
   if (!type) return 'Radiation event'
 
@@ -222,6 +258,7 @@ const formatAlertType = (type: string | null | undefined) => {
 
   return labels[normalizedType] ?? normalizedType.replaceAll('_', ' ')
 }
+
 watch(
     () => notificationSettings.inAppAlertsEnabled,
     (enabled) => {
@@ -235,10 +272,9 @@ watch(
 )
 
 onMounted(() => {
+  loadActiveSummary()
   loadAlertFeed()
 })
-
-
 </script>
 
 <template>
@@ -262,7 +298,7 @@ onMounted(() => {
       <input
           ref="fileInputRef"
           type="file"
-          accept=".csv"
+          accept=".csv,.zip"
           class="hidden-file-input"
           @change="handleFileChange"
       />
@@ -280,7 +316,7 @@ onMounted(() => {
         </span>
 
         <span class="dataset-button__label">
-          {{ isUploading ? 'Uploading CSV...' : datasetLabel }}
+          {{ isUploading ? 'Uploading dataset...' : datasetLabel }}
         </span>
 
         <span class="dataset-button__arrow">⌄</span>
@@ -301,11 +337,12 @@ onMounted(() => {
             @click="toggleAlerts"
         >
           <span
-           v-if="visibleAlertCount > 0 || hasNewAlertBatch"
-            class="icon-button__badge"
-            >
+              v-if="visibleAlertCount > 0 || hasNewAlertBatch"
+              class="icon-button__badge"
+          >
             {{ visibleAlertCount > 0 ? visibleAlertCount : 1 }}
           </span>
+
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M18 9.8C18 6.6 15.6 4 12 4C8.4 4 6 6.6 6 9.8V13.6L4.8 16.2C4.6 16.7 4.9 17.2 5.4 17.2H18.6C19.1 17.2 19.4 16.7 19.2 16.2L18 13.6V9.8Z" />
             <path d="M9.8 19C10.2 19.9 11 20.5 12 20.5C13 20.5 13.8 19.9 14.2 19" />
@@ -320,12 +357,12 @@ onMounted(() => {
             </div>
 
             <div class="alerts-header-actions">
-    <span
-        class="alerts-status-pill"
-        :class="{ 'alerts-status-pill--active': visibleAlertCount > 0 || hasNewAlertBatch }"
-    >
-      {{ visibleAlertCount > 0 || hasNewAlertBatch ? 'New' : 'Seen' }}
-    </span>
+              <span
+                  class="alerts-status-pill"
+                  :class="{ 'alerts-status-pill--active': visibleAlertCount > 0 || hasNewAlertBatch }"
+              >
+                {{ visibleAlertCount > 0 || hasNewAlertBatch ? 'New' : 'Seen' }}
+              </span>
 
               <button class="text-button" type="button" @click="goToSettings">Settings</button>
             </div>
@@ -352,14 +389,18 @@ onMounted(() => {
           </div>
 
           <div v-else class="alert-list">
-            <article v-for="item in recentAlerts" :key="`${item.timestamp}-${item.sensorId}`" class="alert-item">
+            <article
+                v-for="item in recentAlerts"
+                :key="`${item.timestamp}-${item.sensorId}`"
+                class="alert-item"
+            >
               <div class="alert-item__top">
-                <strong>{{ formatAlertType(item.anomalyType) }}</strong>                <span>{{ formatAlertTime(item.timestamp) }}</span>
+                <strong>{{ formatAlertType(item.anomalyType) }}</strong>
+                <span>{{ formatAlertTime(item.timestamp) }}</span>
               </div>
               <p>{{ item.location }} · {{ item.sensorId }}</p>
               <div class="alert-item__meta">
                 <span>{{ item.radiationLevel.toFixed(2) }} µSv/h</span>
-                <span>score {{ item.anomalyScore.toFixed(2) }}</span>
               </div>
             </article>
           </div>
@@ -413,7 +454,7 @@ onMounted(() => {
 
             <div>
               <span>Dataset</span>
-              <strong>{{ datasetState.isLoaded ? 'CSV loaded' : 'Demo mode' }}</strong>
+              <strong>{{ activeSummary?.datasetName ?? (datasetState.isLoaded ? 'CSV loaded' : 'Demo mode') }}</strong>
             </div>
           </div>
 
@@ -909,6 +950,28 @@ onMounted(() => {
   line-height: 1.35;
 }
 
+.alerts-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.alerts-status-pill {
+  padding: 5px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(120, 151, 235, 0.12);
+  background: rgba(255,255,255,0.04);
+  color: #90a5cd;
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.alerts-status-pill--active {
+  border-color: rgba(255, 179, 106, 0.2);
+  background: rgba(255, 179, 106, 0.1);
+  color: #ffb36a;
+}
+
 @media (max-width: 900px) {
   .dataset-button {
     min-width: 200px;
@@ -948,26 +1011,5 @@ onMounted(() => {
   .dataset-button {
     display: none;
   }
-}
-.alerts-header-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.alerts-status-pill {
-  padding: 5px 8px;
-  border-radius: 999px;
-  border: 1px solid rgba(120, 151, 235, 0.12);
-  background: rgba(255,255,255,0.04);
-  color: #90a5cd;
-  font-size: 11px;
-  font-weight: 750;
-}
-
-.alerts-status-pill--active {
-  border-color: rgba(255, 179, 106, 0.2);
-  background: rgba(255, 179, 106, 0.1);
-  color: #ffb36a;
 }
 </style>

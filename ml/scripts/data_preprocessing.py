@@ -26,13 +26,23 @@ def normalize_boolean(value) -> Optional[bool]:
 
     text = str(value).strip().lower()
 
-    if text in {"true", "1", "yes", "y"}:
+    if text in {"true", "1", "yes", "y", "da"}:
         return True
 
-    if text in {"false", "0", "no", "n"}:
+    if text in {"false", "0", "no", "n", "ne"}:
         return False
 
     return None
+
+
+def fill_numeric_with_safe_median(series: pd.Series, default_value: float = 0.0) -> pd.Series:
+    numeric = pd.to_numeric(series, errors="coerce")
+    median = numeric.median()
+
+    if pd.isna(median):
+        median = default_value
+
+    return numeric.fillna(median)
 
 
 def load_raw_measurements(dataset_id: int) -> pd.DataFrame:
@@ -66,19 +76,35 @@ def clean_raw_dataframe(dataframe: pd.DataFrame) -> pd.DataFrame:
 
     cleaned["timestamp"] = pd.to_datetime(cleaned["timestamp_raw"], errors="coerce")
     cleaned["radiation_level"] = pd.to_numeric(cleaned["radiation_raw"], errors="coerce")
-    cleaned["temperature"] = pd.to_numeric(cleaned["temperature_raw"], errors="coerce")
-    cleaned["humidity"] = pd.to_numeric(cleaned["humidity_raw"], errors="coerce")
+
+    cleaned["temperature"] = fill_numeric_with_safe_median(
+        cleaned["temperature_raw"],
+        default_value=0.0,
+    )
+
+    cleaned["humidity"] = fill_numeric_with_safe_median(
+        cleaned["humidity_raw"],
+        default_value=0.0,
+    )
+
     cleaned["original_label"] = cleaned["is_anomaly_raw"].apply(normalize_boolean)
 
-    cleaned["sensor_id"] = cleaned["sensor_id_raw"].astype(str)
-    cleaned["location"] = cleaned["location_raw"].astype(str)
-    cleaned["anomaly_type"] = cleaned["anomaly_type_raw"].astype(str)
+    cleaned["sensor_id"] = cleaned["sensor_id_raw"].fillna("").astype(str).str.strip()
+    cleaned["location"] = cleaned["location_raw"].fillna("").astype(str).str.strip()
+    cleaned["anomaly_type"] = cleaned["anomaly_type_raw"].fillna("normal").astype(str).str.strip()
+
+    cleaned.loc[cleaned["sensor_id"] == "", "sensor_id"] = "UNKNOWN_SENSOR"
+    cleaned.loc[cleaned["location"] == "", "location"] = "Unknown"
+    cleaned.loc[cleaned["anomaly_type"] == "", "anomaly_type"] = "normal"
 
     cleaned = cleaned.dropna(subset=["timestamp", "radiation_level"])
-    cleaned = cleaned.sort_values("timestamp").reset_index(drop=True)
+    cleaned = cleaned.sort_values(["sensor_id", "timestamp"]).reset_index(drop=True)
 
-    cleaned["temperature"] = cleaned["temperature"].fillna(cleaned["temperature"].median())
-    cleaned["humidity"] = cleaned["humidity"].fillna(cleaned["humidity"].median())
+    if cleaned.empty:
+        raise RuntimeError(
+            "No valid rows remained after preprocessing. "
+            "Check timestamp and radiation values."
+        )
 
     return cleaned[
         [

@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
 from app.database.connection import fetch_one, fetch_all
 
@@ -92,7 +92,7 @@ def classify_radiation_event(radiation_level: float, threshold: float) -> tuple[
 
 
 @router.get("/anomalies")
-def get_anomalies(limit: int = 1000):
+def read_anomalies(limit: int = Query(default=200, ge=1, le=1000)):
     dataset_id = get_active_dataset_id()
     threshold = get_threshold()
     active_model_name = get_active_model_name()
@@ -104,6 +104,7 @@ def get_anomalies(limit: int = 1000):
             ar.radiation_level,
             ar.predicted_anomaly,
             ar.anomaly_score,
+            ar.status AS ml_status,
             cm.sensor_id,
             cm.location,
             cm.temperature,

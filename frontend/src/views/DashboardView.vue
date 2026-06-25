@@ -34,9 +34,11 @@ const openModelModal = () => {
 const closeModelModal = () => {
   isModelModalOpen.value = false
 }
+
 const updateModelInfoFromModal = (updatedModelInfo: ModelInfo) => {
   modelInfo.value = updatedModelInfo
 }
+
 const openLogModal = () => {
   isLogModalOpen.value = true
 }
@@ -54,17 +56,26 @@ const goToDataset = () => {
 }
 
 const formatNumber = (value: number | null | undefined, digits = 4) => {
-  if (value === null || value === undefined) return Number(0).toFixed(digits)
+  if (value === null || value === undefined || Number.isNaN(Number(value))) {
+    return Number(0).toFixed(digits)
+  }
+
   return Number(value).toFixed(digits)
 }
 
-const formatPercent = (value: number | null | undefined) => {
-  if (value === null || value === undefined) return 'N/A'
-  return `${Number(value).toFixed(1)}%`
+const formatPercent = (value: number | null | undefined, digits = 1) => {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) {
+    return 'N/A'
+  }
+
+  return `${Number(value).toFixed(digits)}%`
 }
 
 const formatMetric = (value: number | null | undefined) => {
-  if (value === null || value === undefined) return 'N/A'
+  if (value === null || value === undefined || Number.isNaN(Number(value))) {
+    return 'N/A'
+  }
+
   return Number(value).toFixed(3)
 }
 
@@ -111,7 +122,30 @@ const chartAnomalyFlags = computed(() =>
     measurements.value.map((item) => item.isAnomaly),
 )
 
-const modelAccuracy = computed(() => modelInfo.value?.accuracy ?? null)
+const isUnsupervisedEvaluation = computed(() => {
+  return modelInfo.value?.evaluationMode === 'unsupervised'
+})
+
+const modelPrimaryScore = computed(() => {
+  if (isUnsupervisedEvaluation.value) {
+    return modelInfo.value?.modelScore ?? null
+  }
+
+  return modelInfo.value?.accuracy ?? null
+})
+
+const modelPrimaryLabel = computed(() => {
+  if (isUnsupervisedEvaluation.value) return 'Model Score'
+
+  return 'Model Performance'
+})
+
+const modelMetricLabel = computed(() => {
+  if (isUnsupervisedEvaluation.value) return 'Model Score'
+
+  return 'Accuracy'
+})
+
 const activeModelName = computed(() => modelInfo.value?.currentModel ?? 'Detection Model')
 
 const comparisonItems = computed<ModelComparisonItem[]>(() => {
@@ -121,17 +155,22 @@ const comparisonItems = computed<ModelComparisonItem[]>(() => {
     return items
   }
 
-  if (modelAccuracy.value !== null && modelAccuracy.value !== undefined) {
+  if (modelPrimaryScore.value !== null && modelPrimaryScore.value !== undefined) {
     return [
       {
         id: 'current',
         model: activeModelName.value,
-        score: modelAccuracy.value,
-        accuracy: modelAccuracy.value,
+        score: modelPrimaryScore.value,
+        modelScore: isUnsupervisedEvaluation.value ? modelPrimaryScore.value : null,
+        accuracy: isUnsupervisedEvaluation.value ? null : modelPrimaryScore.value,
         precision: modelInfo.value?.precision ?? null,
         recall: null,
         fpr: modelInfo.value?.fpr ?? null,
         fnr: modelInfo.value?.fnr ?? null,
+        evaluationMode: modelInfo.value?.evaluationMode,
+        totalRecords: modelInfo.value?.totalRecords,
+        totalAnomalies: modelInfo.value?.totalAnomalies,
+        anomalyRate: modelInfo.value?.anomalyRate,
         active: true,
         status: 'Computed',
       },
@@ -149,8 +188,15 @@ const modelPanelName = computed(() => {
   return modelPanelPrimary.value?.model ?? activeModelName.value
 })
 
-const modelPanelAccuracy = computed(() => {
-  return modelPanelPrimary.value?.accuracy ?? modelAccuracy.value
+const modelPanelScore = computed(() => {
+  if (isUnsupervisedEvaluation.value) {
+    return modelPanelPrimary.value?.modelScore ??
+        modelPanelPrimary.value?.score ??
+        modelInfo.value?.modelScore ??
+        null
+  }
+
+  return modelPanelPrimary.value?.accuracy ?? modelInfo.value?.accuracy ?? null
 })
 
 const modelPanelPrecision = computed(() => {
@@ -161,14 +207,26 @@ const modelPanelFpr = computed(() => {
   return modelPanelPrimary.value?.fpr ?? modelInfo.value?.fpr
 })
 
+const modelPanelAnomalyRate = computed(() => {
+  return modelPanelPrimary.value?.anomalyRate ?? modelInfo.value?.anomalyRate
+})
+
+const modelPanelDetectedAnomalies = computed(() => {
+  return modelPanelPrimary.value?.totalAnomalies ?? modelInfo.value?.totalAnomalies
+})
+
 const modelBars = computed(() =>
     comparisonItems.value.map((item, index) => {
       const isPending = item.status?.toLowerCase().includes('pending')
-      const score = Math.max(0, Math.min(100, Number(item.score ?? 0)))
+      const displayScore = item.evaluationMode === 'unsupervised'
+          ? item.modelScore ?? item.score
+          : item.accuracy ?? item.score
+
+      const score = Math.max(0, Math.min(100, Number(displayScore ?? 0)))
 
       return {
         label: item.model,
-        percent: isPending ? 'Pending' : formatPercent(item.accuracy ?? score),
+        percent: isPending ? 'Pending' : formatPercent(displayScore),
         height: isPending ? '22px' : `${Math.max(36, Math.round(score * 0.88))}px`,
         active: index === 0,
         pending: isPending,
@@ -210,13 +268,15 @@ const dashboardData = computed(() => {
 
     stats: [
       {
-        title: 'Total Measurements',
-        value: totalMeasurements.toLocaleString(),
-        meta: 'Loaded from active dataset',
-        icon: '◌',
+        title: modelPrimaryLabel.value,
+        value: formatPercent(modelPrimaryScore.value),
+        meta: isUnsupervisedEvaluation.value
+            ? `${activeModelName.value} · ${modelInfo.value?.totalAnomalies ?? 0} detected anomalies`
+            : activeModelName.value,
+        icon: '✦',
         danger: false,
-        hasButton: false,
-        buttonLabel: '',
+        hasButton: true,
+        buttonLabel: 'View model',
       },
       {
         title: 'Detected Anomalies',
@@ -228,13 +288,13 @@ const dashboardData = computed(() => {
         buttonLabel: '',
       },
       {
-        title: 'Model Performance',
-        value: formatPercent(modelAccuracy.value),
-        meta: activeModelName.value,
-        icon: '✦',
+        title: 'Total Measurements',
+        value: totalMeasurements.toLocaleString(),
+        meta: summary.value?.datasetName ?? 'Active dataset',
+        icon: '⌁',
         danger: false,
-        hasButton: true,
-        buttonLabel: 'View model',
+        hasButton: false,
+        buttonLabel: '',
       },
     ],
 
@@ -291,11 +351,15 @@ const dashboardData = computed(() => {
 
     modelTesting: {
       title: 'Model Testing',
-      accuracyLabel: modelPanelName.value,
-      accuracyValue: formatPercent(modelPanelAccuracy.value),
-      progressWidth: `${Math.max(0, Math.min(100, modelPanelAccuracy.value ?? 0))}%`,
-      source: `Precision ${formatMetric(modelPanelPrecision.value)}`,
-      action: `FPR ${formatMetric(modelPanelFpr.value)}`,
+      accuracyLabel: `${modelPanelName.value} · ${modelMetricLabel.value}`,
+      accuracyValue: formatPercent(modelPanelScore.value),
+      progressWidth: `${Math.max(0, Math.min(100, modelPanelScore.value ?? 0))}%`,
+      source: isUnsupervisedEvaluation.value
+          ? `Detected ${modelPanelDetectedAnomalies.value ?? 0} anomalies`
+          : `Precision ${formatMetric(modelPanelPrecision.value)}`,
+      action: isUnsupervisedEvaluation.value
+          ? `Anomaly rate ${formatPercent(modelPanelAnomalyRate.value, 3)}`
+          : `FPR ${formatMetric(modelPanelFpr.value)}`,
       bars: modelBars.value,
       labels: modelBars.value.map((bar) => bar.label),
     },
@@ -1095,7 +1159,6 @@ onMounted(() => {
   color: #ff9d93;
   font-size: 16px;
   font-weight: 500;
-
 }
 
 .log-item__tag {

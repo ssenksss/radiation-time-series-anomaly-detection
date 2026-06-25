@@ -16,7 +16,6 @@ FEATURE_COLUMNS = [
     "radiation_diff",
 ]
 
-MIN_CONTAMINATION = 0.005
 MAX_CONTAMINATION = 0.20
 FALLBACK_CONTAMINATION = 0.03
 
@@ -51,6 +50,19 @@ def get_threshold() -> float:
     return float(row["value"])
 
 
+def safe_fill_feature_columns(dataframe: pd.DataFrame) -> pd.DataFrame:
+    filled = dataframe.copy()
+
+    for column in FEATURE_COLUMNS:
+        filled[column] = pd.to_numeric(filled[column], errors="coerce")
+
+    medians = filled[FEATURE_COLUMNS].median(numeric_only=True)
+    filled[FEATURE_COLUMNS] = filled[FEATURE_COLUMNS].fillna(medians)
+    filled[FEATURE_COLUMNS] = filled[FEATURE_COLUMNS].fillna(0)
+
+    return filled
+
+
 def calculate_contamination_from_threshold(dataframe: pd.DataFrame, threshold: float) -> float:
     if dataframe.empty:
         return FALLBACK_CONTAMINATION
@@ -58,9 +70,9 @@ def calculate_contamination_from_threshold(dataframe: pd.DataFrame, threshold: f
     ratio_above_threshold = float((dataframe["radiation_level"] > threshold).mean())
 
     if ratio_above_threshold <= 0:
-        return MIN_CONTAMINATION
+        return 0.0
 
-    return min(MAX_CONTAMINATION, max(MIN_CONTAMINATION, ratio_above_threshold))
+    return min(MAX_CONTAMINATION, ratio_above_threshold)
 
 
 def load_feature_measurements(dataset_id: int) -> pd.DataFrame:
@@ -95,22 +107,27 @@ def load_feature_measurements(dataset_id: int) -> pd.DataFrame:
 
 
 def train_lof(dataframe: pd.DataFrame, threshold: float) -> pd.DataFrame:
-    model_dataframe = dataframe.copy()
-
-    for column in FEATURE_COLUMNS:
-        model_dataframe[column] = pd.to_numeric(model_dataframe[column], errors="coerce")
-
-    model_dataframe[FEATURE_COLUMNS] = model_dataframe[FEATURE_COLUMNS].fillna(
-        model_dataframe[FEATURE_COLUMNS].median()
-    )
-
+    model_dataframe = safe_fill_feature_columns(dataframe)
     contamination = calculate_contamination_from_threshold(model_dataframe, threshold)
+
+    if contamination <= 0:
+        model_dataframe["predicted_anomaly"] = False
+        model_dataframe["anomaly_score"] = 0.0
+        model_dataframe["status"] = "normal"
+
+        print(f"Threshold used for LOF sensitivity: {threshold}")
+        print("Calculated contamination: 0.0")
+        print("No records above threshold. All records marked as normal.")
+
+        return model_dataframe
 
     scaler = StandardScaler()
     scaled_features = scaler.fit_transform(model_dataframe[FEATURE_COLUMNS])
 
+    n_neighbors = min(35, max(2, len(model_dataframe) - 1))
+
     model = LocalOutlierFactor(
-        n_neighbors=35,
+        n_neighbors=n_neighbors,
         contamination=contamination,
         metric="minkowski",
         n_jobs=-1,
@@ -139,6 +156,7 @@ def train_lof(dataframe: pd.DataFrame, threshold: float) -> pd.DataFrame:
 
     print(f"Threshold used for LOF sensitivity: {threshold}")
     print(f"Calculated contamination: {contamination}")
+    print(f"LOF n_neighbors: {n_neighbors}")
 
     return model_dataframe
 

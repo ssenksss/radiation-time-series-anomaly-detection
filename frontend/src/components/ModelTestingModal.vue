@@ -11,6 +11,7 @@ const emit = defineEmits<{
   (e: 'close'): void
   (e: 'updated', modelInfo: ModelInfo): void
 }>()
+
 const fallbackModels: AvailableModel[] = [
   {
     id: 'isolation_forest',
@@ -57,16 +58,35 @@ const modelBName = computed(() => {
   return modelBResult.value?.model ?? getModelName(selectedModelB.value)
 })
 
+const isUnsupervised = computed(() => {
+  return modelInfo.value?.evaluationMode === 'unsupervised'
+})
+
 const activeModelName = computed(() => {
   return modelAResult.value?.model ?? modelInfo.value?.currentModel ?? 'Detection Model'
 })
 
-const primaryAccuracy = computed(() => {
+const primaryMetricLabel = computed(() => {
+  if (modelInfo.value?.evaluationMode === 'unsupervised') return 'Model Score'
+  if (modelInfo.value?.evaluationMode === 'supervised') return 'Accuracy'
+
+  return 'Model Status'
+})
+
+const primaryMetricValue = computed(() => {
+  if (modelInfo.value?.evaluationMode === 'unsupervised') {
+    return modelAResult.value?.modelScore ??
+        modelAResult.value?.score ??
+        modelInfo.value?.modelScore ??
+        null
+  }
+
   return modelAResult.value?.accuracy ?? modelInfo.value?.accuracy ?? null
 })
 
 const progressWidth = computed(() => {
-  const value = primaryAccuracy.value ?? 0
+  const value = primaryMetricValue.value ?? 0
+
   return `${Math.max(0, Math.min(100, value))}%`
 })
 
@@ -74,72 +94,138 @@ const hasResults = computed(() => comparisonItems.value.length > 0)
 
 const bars = computed(() =>
     comparisonItems.value.map((item, index) => {
-      const score = Number(item.score ?? item.accuracy ?? 0)
+      const displayScore = item.evaluationMode === 'unsupervised'
+          ? item.modelScore ?? item.score
+          : item.accuracy ?? item.score
+
+      const score = Number(displayScore ?? 0)
       const safeScore = Math.max(0, Math.min(100, score))
       const isPending = item.status.toLowerCase().includes('pending')
 
       return {
         label: item.model,
-        value: isPending ? 'Pending' : formatPercent(item.accuracy ?? item.score),
+        value: isPending ? 'Pending' : formatPercent(displayScore),
         height: isPending ? '22px' : `${Math.max(36, Math.round(safeScore * 0.9))}px`,
         active: index === 0,
         pending: isPending,
         status: item.status,
+        subtitle: item.evaluationMode === 'unsupervised'
+            ? `${formatNumber(item.totalAnomalies)} anomalies · ${formatPercent(item.anomalyRate, 3)} rate`
+            : `Precision ${formatMetric(item.precision)}`,
       }
     }),
 )
 
-const comparisonRows = computed(() => [
-  {
-    metric: 'Accuracy',
-    modelA: formatPercent(modelAResult.value?.accuracy),
-    modelB: formatPercent(modelBResult.value?.accuracy),
-  },
-  {
-    metric: 'Precision',
-    modelA: formatMetric(modelAResult.value?.precision),
-    modelB: formatMetric(modelBResult.value?.precision),
-  },
-  {
-    metric: 'Recall',
-    modelA: formatMetric(modelAResult.value?.recall),
-    modelB: formatMetric(modelBResult.value?.recall),
-  },
-  {
-    metric: 'FPR',
-    modelA: formatMetric(modelAResult.value?.fpr),
-    modelB: formatMetric(modelBResult.value?.fpr),
-  },
-  {
-    metric: 'FNR',
-    modelA: formatMetric(modelAResult.value?.fnr),
-    modelB: formatMetric(modelBResult.value?.fnr),
-  },
-  {
-    metric: 'Status',
-    modelA: modelAResult.value?.status ?? 'N/A',
-    modelB: modelBResult.value?.status ?? 'N/A',
-  },
-])
+const comparisonRows = computed(() => {
+  if (isUnsupervised.value) {
+    return [
+      {
+        metric: 'Model Score',
+        modelA: formatPercent(modelAResult.value?.modelScore ?? modelAResult.value?.score),
+        modelB: formatPercent(modelBResult.value?.modelScore ?? modelBResult.value?.score),
+      },
+      {
+        metric: 'Detected Anomalies',
+        modelA: formatNumber(modelAResult.value?.totalAnomalies),
+        modelB: formatNumber(modelBResult.value?.totalAnomalies),
+      },
+      {
+        metric: 'Total Records',
+        modelA: formatNumber(modelAResult.value?.totalRecords),
+        modelB: formatNumber(modelBResult.value?.totalRecords),
+      },
+      {
+        metric: 'Anomaly Rate',
+        modelA: formatPercent(modelAResult.value?.anomalyRate, 3),
+        modelB: formatPercent(modelBResult.value?.anomalyRate, 3),
+      },
+      {
+        metric: 'Evaluation',
+        modelA: 'Unsupervised',
+        modelB: 'Unsupervised',
+      },
+      {
+        metric: 'Status',
+        modelA: modelAResult.value?.status ?? 'N/A',
+        modelB: modelBResult.value?.status ?? 'N/A',
+      },
+    ]
+  }
+
+  return [
+    {
+      metric: 'Accuracy',
+      modelA: formatPercent(modelAResult.value?.accuracy),
+      modelB: formatPercent(modelBResult.value?.accuracy),
+    },
+    {
+      metric: 'Precision',
+      modelA: formatMetric(modelAResult.value?.precision),
+      modelB: formatMetric(modelBResult.value?.precision),
+    },
+    {
+      metric: 'Recall',
+      modelA: formatMetric(modelAResult.value?.recall),
+      modelB: formatMetric(modelBResult.value?.recall),
+    },
+    {
+      metric: 'FPR',
+      modelA: formatMetric(modelAResult.value?.fpr),
+      modelB: formatMetric(modelBResult.value?.fpr),
+    },
+    {
+      metric: 'FNR',
+      modelA: formatMetric(modelAResult.value?.fnr),
+      modelB: formatMetric(modelBResult.value?.fnr),
+    },
+    {
+      metric: 'Status',
+      modelA: modelAResult.value?.status ?? 'N/A',
+      modelB: modelBResult.value?.status ?? 'N/A',
+    },
+  ]
+})
+
+const evaluationNote = computed(() => {
+  if (modelInfo.value?.evaluationMode === 'unsupervised') {
+    return 'Real dataset does not contain manual anomaly labels, so the app shows Model Score, detected anomalies and anomaly rate.'
+  }
+
+  if (modelInfo.value?.evaluationMode === 'supervised') {
+    return 'This dataset contains anomaly labels, so the app shows Accuracy, Precision, Recall, FPR and FNR.'
+  }
+
+  return 'Model metrics will be available after training.'
+})
 
 function getModelName(modelId: string) {
   const model = availableModels.value.find((item) => item.id === modelId)
+
   return model?.name ?? modelId
 }
 
-function formatPercent(value: number | null | undefined) {
-  if (value === null || value === undefined) return 'N/A'
-  return `${Number(value).toFixed(1)}%`
+function formatPercent(value: number | null | undefined, digits = 1) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return 'N/A'
+
+  return `${Number(value).toFixed(digits)}%`
 }
 
 function formatMetric(value: number | null | undefined) {
   if (value === null || value === undefined) return 'N/A'
+
   return Number(value).toFixed(3)
+}
+
+function formatNumber(value: number | null | undefined) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return 'N/A'
+
+  return Number(value).toLocaleString()
 }
 
 function modelStatusLabel(model: AvailableModel) {
   return model.status === 'implemented' ? 'Available' : 'Pending ML'
 }
+
 async function loadModelInfo() {
   try {
     isLoading.value = true
@@ -198,7 +284,7 @@ watch(
             <p class="modal-card__eyebrow">Model Testing</p>
             <h2>Compare detection models</h2>
             <p class="modal-card__subtitle">
-              Select two models and compare their anomaly detection metrics.
+              Compare model performance. Labeled datasets show Accuracy, while real unlabeled datasets show Model Score.
             </p>
           </div>
 
@@ -267,12 +353,12 @@ watch(
           <div class="panel-block">
             <div class="panel-block__top">
               <div>
-                <span>Primary model</span>
+                <span>{{ primaryMetricLabel }}</span>
                 <strong>{{ activeModelName }}</strong>
               </div>
 
               <div class="accuracy-chip">
-                {{ formatPercent(primaryAccuracy) }}
+                {{ formatPercent(primaryMetricValue) }}
               </div>
             </div>
 
@@ -298,6 +384,7 @@ watch(
                 ></div>
 
                 <span class="mini-bars__label">{{ bar.label }}</span>
+                <span class="mini-bars__subtitle">{{ bar.subtitle }}</span>
                 <span
                     class="model-status"
                     :class="{ 'model-status--pending': bar.pending }"
@@ -311,8 +398,8 @@ watch(
               No model comparison data available.
             </div>
 
-            <p v-if="modelInfo?.source" class="model-source">
-              {{ modelInfo.source }}
+            <p class="model-source">
+              {{ evaluationNote }}
             </p>
           </div>
 
@@ -654,6 +741,13 @@ watch(
   font-size: 13px;
   text-align: center;
   line-height: 1.25;
+}
+
+.mini-bars__subtitle {
+  color: #7187b3;
+  font-size: 11px;
+  text-align: center;
+  line-height: 1.3;
 }
 
 .model-status {

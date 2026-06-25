@@ -29,12 +29,14 @@ def get_active_dataset_id() -> int:
     return int(row["value"])
 
 
-async def save_uploaded_csv(file: UploadFile) -> Path:
+async def save_uploaded_dataset(file: UploadFile) -> Path:
     if not file.filename:
         raise RuntimeError("Uploaded file does not have a filename.")
 
-    if not file.filename.lower().endswith(".csv"):
-        raise RuntimeError("Only CSV files are supported.")
+    filename = file.filename.lower()
+
+    if not (filename.endswith(".csv") or filename.endswith(".zip")):
+        raise RuntimeError("Only CSV files and ZIP files containing CSV files are supported.")
 
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -48,7 +50,7 @@ async def save_uploaded_csv(file: UploadFile) -> Path:
     return destination
 
 
-def run_pipeline_for_csv(csv_path: Path) -> Dict[str, Any]:
+def run_pipeline_for_dataset(dataset_path: Path) -> Dict[str, Any]:
     if not PIPELINE_SCRIPT.exists():
         raise RuntimeError(f"Pipeline script not found: {PIPELINE_SCRIPT}")
 
@@ -56,7 +58,7 @@ def run_pipeline_for_csv(csv_path: Path) -> Dict[str, Any]:
         sys.executable,
         str(PIPELINE_SCRIPT),
         "--file",
-        str(csv_path),
+        str(dataset_path),
     ]
 
     result = subprocess.run(
@@ -101,8 +103,8 @@ def update_dataset_display_name(dataset_id: int, original_filename: str) -> None
 async def upload_dataset_and_run_pipeline(file: UploadFile) -> Dict[str, Any]:
     original_filename = Path(file.filename or "uploaded_dataset.csv").name
 
-    saved_path = await save_uploaded_csv(file)
-    pipeline_result = run_pipeline_for_csv(saved_path)
+    saved_path = await save_uploaded_dataset(file)
+    pipeline_result = run_pipeline_for_dataset(saved_path)
 
     active_dataset_id = pipeline_result["activeDatasetId"]
     update_dataset_display_name(active_dataset_id, original_filename)

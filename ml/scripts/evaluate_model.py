@@ -21,7 +21,7 @@ def get_active_dataset_id() -> int:
     return int(row["value"])
 
 
-def get_model_names_for_dataset(dataset_id: int) -> list:
+def get_model_names_for_dataset(dataset_id: int) -> list[str]:
     rows = fetch_all(
         """
         SELECT DISTINCT model_name
@@ -35,7 +35,7 @@ def get_model_names_for_dataset(dataset_id: int) -> list:
     return [row["model_name"] for row in rows]
 
 
-def load_evaluation_data(dataset_id: int, model_name: str) -> pd.DataFrame:
+def load_labeled_evaluation_data(dataset_id: int, model_name: str) -> pd.DataFrame:
     rows = fetch_all(
         """
         SELECT
@@ -55,18 +55,35 @@ def load_evaluation_data(dataset_id: int, model_name: str) -> pd.DataFrame:
         (dataset_id, model_name),
     )
 
-    dataframe = pd.DataFrame(rows)
-
-    if dataframe.empty:
-        raise RuntimeError(
-            f"No evaluation labels found for model '{model_name}'. "
-            "The dataset must contain original is_anomaly labels."
-        )
-
-    return dataframe
+    return pd.DataFrame(rows)
 
 
-def calculate_metrics(dataframe: pd.DataFrame) -> dict:
+def load_unsupervised_summary(dataset_id: int, model_name: str) -> dict:
+    row = fetch_one(
+        """
+        SELECT
+            COUNT(*) AS total_records,
+            COALESCE(SUM(CASE WHEN predicted_anomaly = TRUE THEN 1 ELSE 0 END), 0) AS total_anomalies
+        FROM anomaly_results
+        WHERE dataset_id = %s
+          AND model_name = %s;
+        """,
+        (dataset_id, model_name),
+    )
+
+    if not row:
+        return {
+            "total_records": 0,
+            "total_anomalies": 0,
+        }
+
+    return {
+        "total_records": int(row["total_records"] or 0),
+        "total_anomalies": int(row["total_anomalies"] or 0),
+    }
+
+
+def calculate_supervised_metrics(dataframe: pd.DataFrame) -> dict:
     y_true = dataframe["original_label"].astype(bool)
     y_pred = dataframe["predicted_anomaly"].astype(bool)
 
@@ -84,6 +101,7 @@ def calculate_metrics(dataframe: pd.DataFrame) -> dict:
     fnr = fn / (fn + tp) if (fn + tp) else 0
 
     return {
+        "evaluation_mode": "supervised",
         "accuracy": round(float(accuracy), 2),
         "precision": round(float(precision), 4),
         "recall": round(float(recall), 4),
@@ -96,6 +114,26 @@ def calculate_metrics(dataframe: pd.DataFrame) -> dict:
         "tn": int(tn),
         "fp": int(fp),
         "fn": int(fn),
+    }
+
+
+def calculate_unsupervised_metrics(dataset_id: int, model_name: str) -> dict:
+    summary = load_unsupervised_summary(dataset_id, model_name)
+
+    return {
+        "evaluation_mode": "unsupervised",
+        "accuracy": None,
+        "precision": None,
+        "recall": None,
+        "fpr": None,
+        "fnr": None,
+        "total_records": summary["total_records"],
+        "total_anomalies": summary["total_anomalies"],
+        "true_anomalies": None,
+        "tp": 0,
+        "tn": 0,
+        "fp": 0,
+        "fn": 0,
     }
 
 
@@ -154,23 +192,43 @@ def evaluate_active_dataset(model_names: Optional[Sequence[str]] = None) -> int:
     print(f"Models to evaluate: {', '.join(model_names_to_evaluate)}")
 
     for model_name in model_names_to_evaluate:
-        evaluation_dataframe = load_evaluation_data(dataset_id, model_name)
-        metrics = calculate_metrics(evaluation_dataframe)
+        labeled_dataframe = load_labeled_evaluation_data(dataset_id, model_name)
+
+        has_usable_labels = False
+
+        if not labeled_dataframe.empty:
+            labels = labeled_dataframe["original_label"].astype(bool)
+            has_usable_labels = bool(labels.any())
+
+        if has_usable_labels:
+            metrics = calculate_supervised_metrics(labeled_dataframe)
+        else:
+            metrics = calculate_unsupervised_metrics(dataset_id, model_name)
+
         save_metrics(dataset_id, model_name, metrics)
 
         print("-" * 60)
         print(f"Model: {model_name}")
-        print(f"Accuracy: {metrics['accuracy']}%")
-        print(f"Precision: {metrics['precision']}")
-        print(f"Recall: {metrics['recall']}")
-        print(f"FPR: {metrics['fpr']}")
-        print(f"FNR: {metrics['fnr']}")
-        print(f"True anomalies in dataset: {metrics['true_anomalies']}")
+        print(f"Evaluation mode: {metrics['evaluation_mode']}")
+
+        if metrics["evaluation_mode"] == "supervised":
+            print(f"Accuracy: {metrics['accuracy']}%")
+            print(f"Precision: {metrics['precision']}")
+            print(f"Recall: {metrics['recall']}")
+            print(f"FPR: {metrics['fpr']}")
+            print(f"FNR: {metrics['fnr']}")
+            print(f"True anomalies in dataset: {metrics['true_anomalies']}")
+            print(
+                "Confusion matrix: "
+                f"TP={metrics['tp']}, TN={metrics['tn']}, FP={metrics['fp']}, FN={metrics['fn']}"
+            )
+        else:
+            print("No original anomaly labels found.")
+            print("Supervised metrics were saved as NULL.")
+            print("This is expected for real unlabeled radiation data.")
+
+        print(f"Total records: {metrics['total_records']}")
         print(f"Predicted anomalies: {metrics['total_anomalies']}")
-        print(
-            "Confusion matrix: "
-            f"TP={metrics['tp']}, TN={metrics['tn']}, FP={metrics['fp']}, FN={metrics['fn']}"
-        )
 
     execute_query(
         """

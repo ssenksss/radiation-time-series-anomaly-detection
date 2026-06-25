@@ -55,24 +55,32 @@ interface ModelComparisonItem {
   id: string
   model: string
   score: number | null
+  modelScore?: number | null
   accuracy: number | null
   precision: number | null
   recall: number | null
   fpr: number | null
   fnr: number | null
+  evaluationMode?: 'supervised' | 'unsupervised' | 'pending'
   totalRecords?: number
   totalAnomalies?: number
+  anomalyRate?: number | null
   active: boolean
   status: string
 }
 
 interface ModelInfo {
   currentModel: string
-  accuracy: number
+  accuracy: number | null
   precision: number | null
   recall?: number | null
   fpr: number | null
   fnr?: number | null
+  modelScore?: number | null
+  evaluationMode?: 'supervised' | 'unsupervised' | 'pending'
+  totalRecords?: number
+  totalAnomalies?: number
+  anomalyRate?: number | null
   source?: string
   availableModels?: AvailableModel[]
   selectedModels?: SelectedModels
@@ -107,6 +115,7 @@ const summary = ref<Summary | null>(null)
 const modelInfo = ref<ModelInfo | null>(null)
 const measurements = ref<Measurement[]>([])
 const editableThreshold = ref(0.18)
+const savedThreshold = ref(0.18)
 
 const selectedModel = ref('isolation_forest')
 const isModelDropdownOpen = ref(false)
@@ -130,6 +139,14 @@ const thresholdNumber = computed(() => {
 
 const thresholdValue = computed(() => {
   return `${thresholdNumber.value.toFixed(2)} µSv/h`
+})
+
+const hasUnsavedThresholdChanges = computed(() => {
+  return Math.abs(editableThreshold.value - savedThreshold.value) > 0.0001
+})
+
+const metricsAreStale = computed(() => {
+  return hasUnsavedThresholdChanges.value || isPipelineRunning.value
 })
 
 const thresholdSliderMax = computed(() => {
@@ -182,8 +199,40 @@ const selectedModelMetrics = computed(() => {
   return modelInfo.value?.comparison?.find((item) => item.id === selectedModel.value) ?? null
 })
 
-const accuracyValue = computed(() => {
+const selectedEvaluationMode = computed(() => {
+  return selectedModelMetrics.value?.evaluationMode ?? modelInfo.value?.evaluationMode ?? 'pending'
+})
+
+const isUnsupervisedModel = computed(() => {
+  return selectedEvaluationMode.value === 'unsupervised'
+})
+
+const isSupervisedModel = computed(() => {
+  return selectedEvaluationMode.value === 'supervised'
+})
+
+const modelMetricTitle = computed(() => {
+  if (metricsAreStale.value) return 'Metrics Need Update'
+  if (!isSelectedModelImplemented.value) return 'Model Status'
+  if (isUnsupervisedModel.value) return 'Current Model Score'
+
+  return 'Current Accuracy'
+})
+
+const primaryMetricValue = computed(() => {
+  if (metricsAreStale.value) return 'Save required'
   if (!isSelectedModelImplemented.value) return 'Pending'
+
+  if (isUnsupervisedModel.value) {
+    const score =
+        selectedModelMetrics.value?.modelScore ??
+        selectedModelMetrics.value?.score ??
+        modelInfo.value?.modelScore
+
+    if (score === null || score === undefined) return 'N/A'
+
+    return `${Number(score).toFixed(1)}%`
+  }
 
   const accuracy = selectedModelMetrics.value?.accuracy ?? modelInfo.value?.accuracy
 
@@ -193,6 +242,7 @@ const accuracyValue = computed(() => {
 })
 
 const precisionValue = computed(() => {
+  if (metricsAreStale.value) return 'Save required'
   if (!isSelectedModelImplemented.value) return 'Pending'
 
   const precision = selectedModelMetrics.value?.precision ?? modelInfo.value?.precision
@@ -202,7 +252,19 @@ const precisionValue = computed(() => {
   return Number(precision).toFixed(3)
 })
 
+const recallValue = computed(() => {
+  if (metricsAreStale.value) return 'Save required'
+  if (!isSelectedModelImplemented.value) return 'Pending'
+
+  const recall = selectedModelMetrics.value?.recall ?? modelInfo.value?.recall
+
+  if (recall === null || recall === undefined) return 'N/A'
+
+  return Number(recall).toFixed(3)
+})
+
 const fprValue = computed(() => {
+  if (metricsAreStale.value) return 'Save required'
   if (!isSelectedModelImplemented.value) return 'Pending'
 
   const fpr = selectedModelMetrics.value?.fpr ?? modelInfo.value?.fpr
@@ -212,28 +274,114 @@ const fprValue = computed(() => {
   return Number(fpr).toFixed(3)
 })
 
-const contaminationValue = computed(() => {
-  const metricTotal = selectedModelMetrics.value?.totalRecords ?? 0
-  const metricAnomalies = selectedModelMetrics.value?.totalAnomalies ?? 0
+const fnrValue = computed(() => {
+  if (metricsAreStale.value) return 'Save required'
+  if (!isSelectedModelImplemented.value) return 'Pending'
 
-  if (metricTotal > 0) {
-    return (metricAnomalies / metricTotal).toFixed(3)
-  }
+  const fnr = selectedModelMetrics.value?.fnr ?? modelInfo.value?.fnr
 
-  const total = summary.value?.totalMeasurements ?? 0
-  const anomalies = summary.value?.totalAnomalies ?? 0
+  if (fnr === null || fnr === undefined) return 'N/A'
 
-  if (!total) return '0.03'
-
-  return (anomalies / total).toFixed(3)
+  return Number(fnr).toFixed(3)
 })
 
-const maxSamplesValue = computed(() => {
-  const total = summary.value?.totalMeasurements ?? 0
+const detectedAnomaliesValue = computed(() => {
+  if (metricsAreStale.value) return 'Save required'
 
-  if (!total) return '256'
+  const totalAnomalies =
+      selectedModelMetrics.value?.totalAnomalies ??
+      modelInfo.value?.totalAnomalies ??
+      summary.value?.totalAnomalies
 
-  return Math.min(total, 256).toString()
+  if (totalAnomalies === null || totalAnomalies === undefined) return 'N/A'
+
+  return Number(totalAnomalies).toLocaleString()
+})
+
+const totalRecordsValue = computed(() => {
+  if (metricsAreStale.value) return 'Save required'
+
+  const totalRecords =
+      selectedModelMetrics.value?.totalRecords ??
+      modelInfo.value?.totalRecords ??
+      summary.value?.totalMeasurements
+
+  if (totalRecords === null || totalRecords === undefined) return 'N/A'
+
+  return Number(totalRecords).toLocaleString()
+})
+
+const anomalyRateValue = computed(() => {
+  if (metricsAreStale.value) return 'Save required'
+
+  const anomalyRate = selectedModelMetrics.value?.anomalyRate ?? modelInfo.value?.anomalyRate
+
+  if (anomalyRate !== null && anomalyRate !== undefined) {
+    return `${Number(anomalyRate).toFixed(3)}%`
+  }
+
+  const totalRecords =
+      selectedModelMetrics.value?.totalRecords ??
+      modelInfo.value?.totalRecords ??
+      summary.value?.totalMeasurements ??
+      0
+
+  const totalAnomalies =
+      selectedModelMetrics.value?.totalAnomalies ??
+      modelInfo.value?.totalAnomalies ??
+      summary.value?.totalAnomalies ??
+      0
+
+  if (!totalRecords) return 'N/A'
+
+  return `${((Number(totalAnomalies) / Number(totalRecords)) * 100).toFixed(3)}%`
+})
+
+const evaluationValue = computed(() => {
+  if (metricsAreStale.value) return 'Save required'
+  if (!isSelectedModelImplemented.value) return 'Pending'
+  if (isUnsupervisedModel.value) return 'Unsupervised'
+  if (isSupervisedModel.value) return 'Supervised'
+
+  return 'Pending'
+})
+
+const metricCardOneLabel = computed(() => {
+  return isUnsupervisedModel.value ? 'Detected Anomalies' : 'Precision'
+})
+
+const metricCardOneValue = computed(() => {
+  return isUnsupervisedModel.value ? detectedAnomaliesValue.value : precisionValue.value
+})
+
+const metricCardTwoLabel = computed(() => {
+  return isUnsupervisedModel.value ? 'Total Records' : 'Recall'
+})
+
+const metricCardTwoValue = computed(() => {
+  return isUnsupervisedModel.value ? totalRecordsValue.value : recallValue.value
+})
+
+const metricCardThreeLabel = computed(() => {
+  return isUnsupervisedModel.value ? 'Anomaly Rate' : 'FPR'
+})
+
+const metricCardThreeValue = computed(() => {
+  return isUnsupervisedModel.value ? anomalyRateValue.value : fprValue.value
+})
+
+const metricCardFourLabel = computed(() => {
+  return isUnsupervisedModel.value ? 'Evaluation' : 'FNR'
+})
+
+const metricCardFourValue = computed(() => {
+  return isUnsupervisedModel.value ? evaluationValue.value : fnrValue.value
+})
+
+const unsavedThresholdMessage = computed(() => {
+  if (!hasUnsavedThresholdChanges.value) return ''
+
+  return `Unsaved threshold change. Save Changes to retrain models and update metrics. Last saved threshold: ${savedThreshold.value.toFixed(2)} µSv/h.`
 })
 
 const notificationSummary = computed(() => {
@@ -313,6 +461,7 @@ const selectModel = async (model: AvailableModel) => {
 
   selectedModel.value = model.id
   isModelDropdownOpen.value = false
+  saveStatus.value = ''
 
   try {
     isModelLoading.value = true
@@ -332,6 +481,7 @@ const selectModel = async (model: AvailableModel) => {
     isModelLoading.value = false
   }
 }
+
 const delay = (milliseconds: number) => {
   return new Promise((resolve) => {
     window.setTimeout(resolve, milliseconds)
@@ -353,6 +503,7 @@ const refreshSettingsDashboardData = async (threshold: number) => {
   modelInfo.value = modelInfoResponse as ModelInfo
   measurements.value = measurementsResponse as Measurement[]
   editableThreshold.value = threshold
+  savedThreshold.value = threshold
 }
 
 const waitForPipelineToFinish = async () => {
@@ -382,7 +533,8 @@ const waitForPipelineToFinish = async () => {
 
   throw new Error('ML pipeline took too long to finish.')
 }
-  const saveChanges = async () => {
+
+const saveChanges = async () => {
   const selectedThreshold = editableThreshold.value
 
   try {
@@ -473,6 +625,7 @@ const loadSettingsData = async () => {
 
     summary.value = summaryResponse as Summary
     editableThreshold.value = summaryResponse.threshold
+    savedThreshold.value = summaryResponse.threshold
 
     const loadedModelInfo = modelInfoResponse as ModelInfo
     modelInfo.value = loadedModelInfo
@@ -534,8 +687,8 @@ onMounted(() => {
           <div class="model-block__header">
             <h2>Anomaly Detection Model</h2>
             <div class="accuracy-box">
-              <span>Current Accuracy</span>
-              <strong>{{ isLoading || isModelLoading ? 'Loading...' : accuracyValue }}</strong>
+              <span>{{ modelMetricTitle }}</span>
+              <strong>{{ isLoading || isModelLoading ? 'Loading...' : primaryMetricValue }}</strong>
             </div>
           </div>
 
@@ -557,9 +710,9 @@ onMounted(() => {
                     :key="model.id"
                     class="model-option"
                     :class="{
-                      'model-option--active': selectedModel === model.id,
-                      'model-option--disabled': !isModelImplemented(model),
-                    }"
+                    'model-option--active': selectedModel === model.id,
+                    'model-option--disabled': !isModelImplemented(model),
+                  }"
                     type="button"
                     :disabled="!isModelImplemented(model)"
                     @click="selectModel(model)"
@@ -569,9 +722,9 @@ onMounted(() => {
                     <span
                         class="model-status"
                         :class="{
-                          'model-status--available': isModelImplemented(model),
-                          'model-status--pending': !isModelImplemented(model),
-                        }"
+                        'model-status--available': isModelImplemented(model),
+                        'model-status--pending': !isModelImplemented(model),
+                      }"
                     >
                       {{ getModelStatusLabel(model) }}
                     </span>
@@ -583,25 +736,26 @@ onMounted(() => {
             </div>
           </div>
 
-
-
+          <p v-if="unsavedThresholdMessage" class="unsaved-warning">
+            {{ unsavedThresholdMessage }}
+          </p>
 
           <div class="config-grid">
             <div class="config-item">
-              <span>Contamination</span>
-              <strong>{{ contaminationValue }}</strong>
+              <span>{{ metricCardOneLabel }}</span>
+              <strong>{{ metricCardOneValue }}</strong>
             </div>
             <div class="config-item">
-              <span>Max Samples</span>
-              <strong>{{ maxSamplesValue }}</strong>
+              <span>{{ metricCardTwoLabel }}</span>
+              <strong>{{ metricCardTwoValue }}</strong>
             </div>
             <div class="config-item">
-              <span>Precision</span>
-              <strong>{{ precisionValue }}</strong>
+              <span>{{ metricCardThreeLabel }}</span>
+              <strong>{{ metricCardThreeValue }}</strong>
             </div>
             <div class="config-item">
-              <span>FPR</span>
-              <strong>{{ fprValue }}</strong>
+              <span>{{ metricCardFourLabel }}</span>
+              <strong>{{ metricCardFourValue }}</strong>
             </div>
           </div>
 
@@ -613,7 +767,8 @@ onMounted(() => {
                 @click="saveChanges"
             >
               {{ isPipelineRunning ? 'Retraining...' : 'Save Changes' }}
-            </button>            <span v-if="saveStatus" class="feedback feedback--success">{{ saveStatus }}</span>
+            </button>
+            <span v-if="saveStatus" class="feedback feedback--success">{{ saveStatus }}</span>
           </div>
         </div>
 
@@ -734,7 +889,7 @@ onMounted(() => {
                 v-model="notificationSettings.alertEmail"
                 class="input-box input-box--editable"
                 type="email"
-                placeholder="Enter alert email"
+                placeholder="alert@gmail.com"
                 :disabled="!notificationSettings.emailAlertsEnabled"
             />
           </div>
@@ -1019,26 +1174,6 @@ onMounted(() => {
   border: 1px solid rgba(255, 179, 106, 0.16);
 }
 
-.model-state {
-  margin-top: 14px;
-  padding: 12px 14px;
-  border-radius: 14px;
-  border: 1px solid rgba(126, 240, 191, 0.14);
-  background: rgba(126, 240, 191, 0.05);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.model-state span {
-  color: #90a5cd;
-}
-
-.model-state strong {
-  color: #dff8ee;
-}
-
 .config-grid {
   margin-top: 16px;
   display: grid;
@@ -1066,6 +1201,13 @@ onMounted(() => {
 .config-item strong,
 .input-box {
   color: #eef4ff;
+}
+
+.unsaved-warning {
+  margin: 8px 0 14px;
+  color: #ffcf9a;
+  font-size: 13px;
+  line-height: 1.4;
 }
 
 .save-row,
@@ -1304,8 +1446,7 @@ onMounted(() => {
   .send-row,
   .preview-header,
   .notifications-header,
-  .alert-email-row,
-  .model-state {
+  .alert-email-row {
     flex-direction: column;
     align-items: flex-start;
   }
@@ -1333,6 +1474,7 @@ onMounted(() => {
   cursor: pointer;
   z-index: 3;
 }
+
 .save-button:disabled {
   opacity: 0.55;
   cursor: not-allowed;

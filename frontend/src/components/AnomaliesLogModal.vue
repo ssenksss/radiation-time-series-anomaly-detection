@@ -18,6 +18,46 @@ const anomalies = ref<Measurement[]>([])
 const searchQuery = ref('')
 const isLoading = ref(false)
 const errorMessage = ref('')
+
+function normalizeText(value: string | null | undefined) {
+  return String(value ?? '')
+      .trim()
+      .toLowerCase()
+      .replaceAll('_', ' ')
+      .replaceAll('-', ' ')
+      .replace(/\s+/g, ' ')
+}
+
+function normalizeForCompare(value: string | null | undefined) {
+  return normalizeText(value).replaceAll(' ', '')
+}
+
+function hasMeaningfulValue(value: string | null | undefined) {
+  const normalized = normalizeText(value)
+
+  return Boolean(
+      normalized &&
+      normalized !== 'unknown' &&
+      normalized !== 'unknown sensor' &&
+      normalized !== 'unknown_sensor' &&
+      normalized !== 'nan' &&
+      normalized !== 'none' &&
+      normalized !== 'null',
+  )
+}
+
+function formatDisplayValue(value: string | null | undefined) {
+  if (!hasMeaningfulValue(value)) return '—'
+
+  return String(value).trim().replaceAll('_', ' ')
+}
+
+function sensorIsSameAsLocation(sensorId: string | null | undefined, location: string | null | undefined) {
+  if (!hasMeaningfulValue(sensorId) || !hasMeaningfulValue(location)) return false
+
+  return normalizeForCompare(sensorId) === normalizeForCompare(location)
+}
+
 const formatAnomalyType = (type: string | null | undefined) => {
   if (!type) return 'Normal'
 
@@ -45,6 +85,37 @@ const getSeverityType = (status: string | null | undefined) => {
 
   return 'alert'
 }
+
+const shouldShowLocation = computed(() => {
+  return anomalies.value.some((item) => hasMeaningfulValue(item.location))
+})
+
+const shouldShowSensor = computed(() => {
+  return anomalies.value.some((item) => {
+    if (!hasMeaningfulValue(item.sensorId)) return false
+
+    if (!hasMeaningfulValue(item.location)) return true
+
+    return !sensorIsSameAsLocation(item.sensorId, item.location)
+  })
+})
+
+const tableGridStyle = computed(() => {
+  const columns = ['1.45fr', '1fr', '0.82fr', '0.62fr', '0.78fr']
+
+  if (shouldShowLocation.value) {
+    columns.push('0.9fr')
+  }
+
+  if (shouldShowSensor.value) {
+    columns.push('0.9fr')
+  }
+
+  return {
+    gridTemplateColumns: columns.join(' '),
+  }
+})
+
 const logRows = computed(() => {
   const query = searchQuery.value.trim().toLowerCase()
 
@@ -72,7 +143,10 @@ const logRows = computed(() => {
         severityType: getSeverityType(item.status),
         anomalyScore: Number(item.anomalyScore ?? 0).toFixed(3),
         anomalyType: formatAnomalyType(item.anomalyType),
-        source: item.sensorId || item.location || 'Unknown sensor',
+        location: formatDisplayValue(item.location),
+        sensor: sensorIsSameAsLocation(item.sensorId, item.location)
+            ? '—'
+            : formatDisplayValue(item.sensorId),
       }))
 })
 
@@ -96,16 +170,35 @@ function goToDataset() {
 }
 
 function exportCsv() {
-  const header = ['timestamp', 'radiation_level', 'severity', 'source', 'anomaly_score', 'anomaly_type']
+  const header = ['timestamp', 'radiation_level', 'type', 'score', 'status']
 
-  const rows = logRows.value.map((row) => [
-    row.timestamp,
-    row.value,
-    row.severity,
-    row.source,
-    row.anomalyScore,
-    row.anomalyType,
-  ])
+  if (shouldShowLocation.value) {
+    header.push('location')
+  }
+
+  if (shouldShowSensor.value) {
+    header.push('sensor')
+  }
+
+  const rows = logRows.value.map((row) => {
+    const cells = [
+      row.timestamp,
+      row.value,
+      row.anomalyType,
+      row.anomalyScore,
+      row.severity,
+    ]
+
+    if (shouldShowLocation.value) {
+      cells.push(row.location)
+    }
+
+    if (shouldShowSensor.value) {
+      cells.push(row.sensor)
+    }
+
+    return cells
+  })
 
   const csvContent = [header, ...rows]
       .map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(','))
@@ -160,28 +253,40 @@ watch(
         </div>
 
         <div v-if="isLoading" class="log-table">
-          <div class="log-table__row">
+          <div class="log-table__row log-table__row--message">
             <span>Loading anomalies...</span>
           </div>
         </div>
 
         <div v-else-if="errorMessage" class="log-table">
-          <div class="log-table__row">
+          <div class="log-table__row log-table__row--message">
             <span>{{ errorMessage }}</span>
           </div>
         </div>
 
+        <div v-else-if="logRows.length === 0" class="log-table">
+          <div class="log-table__row log-table__row--message">
+            <span>No events match the current search.</span>
+          </div>
+        </div>
+
         <div v-else class="log-table">
-          <div class="log-table__head">
+          <div class="log-table__head" :style="tableGridStyle">
             <span>Timestamp</span>
             <span>Radiation Level</span>
             <span>Type</span>
             <span>Score</span>
             <span>Status</span>
-            <span>Sensor</span>
+            <span v-if="shouldShowLocation">Location</span>
+            <span v-if="shouldShowSensor">Sensor</span>
           </div>
 
-          <div v-for="row in logRows" :key="row.timestamp" class="log-table__row">
+          <div
+              v-for="row in logRows"
+              :key="`${row.timestamp}-${row.location}-${row.sensor}`"
+              class="log-table__row"
+              :style="tableGridStyle"
+          >
             <span class="timestamp">
               <i class="row-dot"></i>
               {{ row.timestamp }}
@@ -190,10 +295,12 @@ watch(
             <span>{{ row.anomalyType }}</span>
             <span class="score-value">{{ row.anomalyScore }}</span>
             <span class="severity">
-              <span class="severity-pill":class="`severity-pill--${row.severityType}`">{{ row.severity }}</span>
+              <span class="severity-pill" :class="`severity-pill--${row.severityType}`">
+                {{ row.severity }}
+              </span>
             </span>
-
-            <span>{{ row.source }}</span>
+            <span v-if="shouldShowLocation">{{ row.location }}</span>
+            <span v-if="shouldShowSensor">{{ row.sensor }}</span>
           </div>
         </div>
 
@@ -233,7 +340,7 @@ watch(
 }
 
 .modal-card {
-  width: min(960px, 100%);
+  width: min(1080px, 100%);
   border-radius: 24px;
   border: 1px solid rgba(120, 151, 235, 0.14);
   background:
@@ -298,6 +405,11 @@ watch(
   display: flex;
   align-items: center;
   padding: 0 14px;
+  outline: none;
+}
+
+.log-toolbar__search::placeholder {
+  color: #93a7cf;
 }
 
 .toolbar-button,
@@ -320,7 +432,6 @@ watch(
 .log-table__head,
 .log-table__row {
   display: grid;
-  grid-template-columns: 1.45fr 1fr 1fr 0.65fr 0.8fr 0.8fr;
   gap: 12px;
   align-items: center;
 }
@@ -335,6 +446,10 @@ watch(
   padding: 16px;
   color: #eaf1ff;
   border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+.log-table__row--message {
+  display: block;
 }
 
 .timestamp {
@@ -391,6 +506,11 @@ watch(
   color: #d7e4ff;
 }
 
+.score-value {
+  color: #8fe6c6;
+  font-weight: 400;
+}
+
 .modal-footer {
   margin-top: 18px;
   display: flex;
@@ -421,20 +541,7 @@ watch(
 
   .log-table__head,
   .log-table__row {
-    grid-template-columns: 1fr;
+    grid-template-columns: 1fr !important;
   }
-}
-
-.log-toolbar__search {
-  outline: none;
-}
-
-.log-toolbar__search::placeholder {
-  color: #93a7cf;
-}
-
-.score-value {
-  color: #8fe6c6;
-  font-weight: 400;
 }
 </style>

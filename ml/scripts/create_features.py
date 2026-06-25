@@ -18,6 +18,16 @@ def get_active_dataset_id() -> int:
     return int(row["value"])
 
 
+def fill_numeric_with_safe_median(series: pd.Series, default_value: float = 0.0) -> pd.Series:
+    numeric = pd.to_numeric(series, errors="coerce")
+    median = numeric.median()
+
+    if pd.isna(median):
+        median = default_value
+
+    return numeric.fillna(median)
+
+
 def load_clean_measurements(dataset_id: int) -> pd.DataFrame:
     rows = fetch_all(
         """
@@ -53,6 +63,13 @@ def build_features(dataframe: pd.DataFrame) -> pd.DataFrame:
 
     features = features.sort_values(["sensor_id", "timestamp"]).reset_index(drop=True)
 
+    features["radiation_level"] = pd.to_numeric(features["radiation_level"], errors="coerce")
+    features["temperature"] = fill_numeric_with_safe_median(features["temperature"], default_value=0.0)
+    features["humidity"] = fill_numeric_with_safe_median(features["humidity"], default_value=0.0)
+
+    features = features.dropna(subset=["radiation_level"])
+    features = features.reset_index(drop=True)
+
     features["hour_of_day"] = features["timestamp"].dt.hour
     features["day_of_week"] = features["timestamp"].dt.dayofweek
 
@@ -74,8 +91,10 @@ def build_features(dataframe: pd.DataFrame) -> pd.DataFrame:
     features["rolling_std"] = features["rolling_std"].fillna(0)
     features["radiation_diff"] = features["radiation_diff"].fillna(0)
 
-    features["temperature"] = features["temperature"].fillna(features["temperature"].median())
-    features["humidity"] = features["humidity"].fillna(features["humidity"].median())
+    features["rolling_mean"] = fill_numeric_with_safe_median(
+        features["rolling_mean"],
+        default_value=float(features["radiation_level"].mean()),
+    )
 
     return features
 

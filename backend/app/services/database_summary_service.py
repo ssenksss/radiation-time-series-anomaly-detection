@@ -85,7 +85,17 @@ def get_summary_from_database() -> dict:
         SELECT
             d.name AS dataset_name,
             COUNT(ar.id) AS total_measurements,
-            COALESCE(SUM(CASE WHEN ar.predicted_anomaly = TRUE THEN 1 ELSE 0 END), 0) AS total_anomalies,
+            COALESCE(
+                SUM(
+                    CASE
+                        WHEN ar.predicted_anomaly = TRUE
+                         AND ar.radiation_level >= %s
+                        THEN 1
+                        ELSE 0
+                    END
+                ),
+                0
+            ) AS total_anomalies,
             COALESCE(AVG(ar.radiation_level), 0) AS average_level,
             COALESCE(MAX(ar.radiation_level), 0) AS max_level,
             COALESCE(MIN(ar.radiation_level), 0) AS min_level,
@@ -97,7 +107,7 @@ def get_summary_from_database() -> dict:
         WHERE d.id = %s
         GROUP BY d.name;
         """,
-        (active_model_name, dataset_id),
+        (threshold, active_model_name, dataset_id),
     )
 
     latest_row = fetch_one(
@@ -135,7 +145,7 @@ def get_summary_from_database() -> dict:
 
     if latest_row:
         current_level = float(latest_row["radiation_level"])
-        active_alert = bool(latest_row["predicted_anomaly"])
+        active_alert = bool(latest_row["predicted_anomaly"]) and current_level >= threshold
         last_updated = latest_row["timestamp"].strftime("%Y-%m-%d %H:%M:%S")
 
     if summary_row["last_updated"]:

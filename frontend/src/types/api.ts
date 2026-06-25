@@ -24,17 +24,22 @@ export interface Summary {
     lastUpdated: string
 }
 
+export type EvaluationMode = 'supervised' | 'unsupervised' | 'pending'
+
 export interface ModelComparisonItem {
     id: string
     model: string
     score: number | null
+    modelScore?: number | null
     accuracy: number | null
     precision: number | null
     recall: number | null
     fpr: number | null
     fnr: number | null
+    evaluationMode?: EvaluationMode
     totalRecords?: number
     totalAnomalies?: number
+    anomalyRate?: number | null
     active: boolean
     status: string
 }
@@ -59,15 +64,22 @@ export interface ConfusionMatrix {
 
 export interface ModelInfo {
     currentModel: string
-    accuracy: number
-    precision: number
-    fpr: number
-    fnr: number
+    accuracy: number | null
+    precision: number | null
+    recall?: number | null
+    fpr: number | null
+    fnr?: number | null
+    modelScore?: number | null
+    evaluationMode?: EvaluationMode
+    totalRecords?: number
+    totalAnomalies?: number
+    anomalyRate?: number | null
     source: string
     availableModels: AvailableModel[]
     selectedModels: SelectedModels
     confusionMatrix: ConfusionMatrix
     comparison: ModelComparisonItem[]
+    lastTrainedAt?: string
 }
 
 export interface PipelineStatus {

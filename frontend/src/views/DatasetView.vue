@@ -119,7 +119,7 @@ const datasetName = computed(() => {
 
 const datasetInfoText = computed(() => {
   if (isUploading.value) {
-    return 'Status: Uploading CSV and running ML pipeline...'
+    return 'Status: Uploading dataset and running ML pipeline...'
   }
 
   if (isLoading.value) {
@@ -227,15 +227,17 @@ const handleFileChange = async (event: Event) => {
 
   if (!file) return
 
-  if (!file.name.toLowerCase().endsWith('.csv')) {
-    alert('Please select a CSV file.')
+  const filename = file.name.toLowerCase()
+
+  if (!filename.endsWith('.csv') && !filename.endsWith('.zip')) {
+    alert('Please select a CSV file or a ZIP file containing CSV files.')
     target.value = ''
     return
   }
 
   try {
     isUploading.value = true
-    uploadStatus.value = 'Uploading CSV and running ML pipeline...'
+    uploadStatus.value = 'Uploading dataset and running ML pipeline...'
     errorMessage.value = ''
 
     await uploadDataset(file)
@@ -284,7 +286,7 @@ onMounted(() => {
         <input
             ref="fileInputRef"
             type="file"
-            accept=".csv"
+            accept=".csv,.zip"
             class="hidden-file-input"
             @change="handleFileChange"
         />
@@ -333,7 +335,7 @@ onMounted(() => {
               :disabled="isUploading"
               @click="openFilePicker"
           >
-            {{ isUploading ? 'Processing...' : 'Upload CSV' }}
+            {{ isUploading ? 'Processing...' : 'Upload Dataset' }}
           </button>
         </div>
 
@@ -375,7 +377,7 @@ onMounted(() => {
           </div>
 
           <button class="ghost-button" type="button" @click="openFilePicker">
-            Upload CSV
+            Upload Dataset
           </button>
         </div>
 
@@ -412,7 +414,7 @@ onMounted(() => {
           </div>
 
           <div v-if="!previewRows.length" class="preview-empty">
-            No dataset preview available. Check if backend is running or upload a CSV file.
+            No dataset preview available. Check if backend is running or upload a CSV/ZIP file.
           </div>
         </div>
       </section>
@@ -471,7 +473,7 @@ onMounted(() => {
             </div>
 
             <div v-if="!csvPreviewRows.length" class="preview-empty">
-              No CSV preview available. Check if backend is running or upload a CSV file.
+              No dataset preview available. Check if backend is running or upload a CSV/ZIP file.
             </div>
           </div>
         </div>

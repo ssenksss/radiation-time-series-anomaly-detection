@@ -3,45 +3,16 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import MainLayout from '../layouts/MainLayout.vue'
 import RadiationChart from '../components/RadiationChart.vue'
-import { useDatasetStore } from '../stores/useDatasetStore'
 import { getAnomalies, getMeasurements, getSummary } from '../services/api'
-
-interface Measurement {
-  timestamp: string
-  radiationLevel: number
-  sensorId: string
-  location: string
-  temperature: number | null
-  humidity: number | null
-  isAnomaly: boolean
-  anomalyScore: number
-  anomalyType: string
-  status: string
-}
-
-interface Summary {
-  datasetName: string
-  totalMeasurements: number
-  totalAnomalies: number
-  currentLevel: number
-  averageLevel: number
-  maxLevel: number
-  minLevel: number
-  threshold: number
-  activeAlert: boolean
-  lastUpdated: string
-}
-
-type DatasetRecord = Record<string, string | number | boolean | null | undefined>
+import type { Measurement, Summary } from '../types/api'
 
 const router = useRouter()
-const { datasetState } = useDatasetStore()
 
 const MAX_CHART_POINTS = 500
 const RANGE_TOLERANCE_MS = 15 * 60 * 1000
 
 const period = ref('Month')
-const quickRange = ref('24h')
+const quickRange = ref('All')
 const selectedStatus = ref('All statuses')
 const searchQuery = ref('')
 const fromDate = ref('')
@@ -55,67 +26,20 @@ const summary = ref<Summary | null>(null)
 const isLoading = ref(true)
 const errorMessage = ref('')
 
-const isCustomDatasetLoaded = computed(() => datasetState.isLoaded)
-
 function formatNumber(value: number | null | undefined) {
   if (value === null || value === undefined) return '0.0000'
+
   return Number(value).toFixed(4)
 }
 
 function formatChartLabel(timestamp: string) {
   const parts = timestamp.split(' ')
+
   return parts[1]?.slice(0, 5) ?? timestamp
 }
 
 function parseTimestamp(timestamp: string) {
   return new Date(timestamp.replace(' ', 'T'))
-}
-
-function normalizeText(value: unknown, fallback: string) {
-  const text = String(value ?? '').trim()
-  return text || fallback
-}
-
-function getRecordValue(record: DatasetRecord, candidates: string[]) {
-  const normalizedEntries = Object.entries(record).reduce<Record<string, unknown>>((acc, [key, value]) => {
-    acc[key.toLowerCase().trim()] = value
-    return acc
-  }, {})
-
-  for (const candidate of candidates) {
-    const key = candidate.toLowerCase().trim()
-
-    if (key in normalizedEntries) {
-      return normalizedEntries[key]
-    }
-  }
-
-  return undefined
-}
-
-function parseOptionalNumber(value: unknown) {
-  if (value === null || value === undefined || value === '') return null
-
-  const parsed = Number(String(value).replace(',', '.'))
-  return Number.isFinite(parsed) ? parsed : null
-}
-
-function parseBooleanValue(value: unknown) {
-  if (value === null || value === undefined || value === '') return null
-
-  if (typeof value === 'boolean') return value
-
-  const normalized = String(value).toLowerCase().trim()
-
-  if (['1', 'true', 'yes', 'y', 'anomaly', 'anomalous'].includes(normalized)) {
-    return true
-  }
-
-  if (['0', 'false', 'no', 'n', 'normal'].includes(normalized)) {
-    return false
-  }
-
-  return null
 }
 
 function formatAnomalyType(type: string | null | undefined) {
@@ -218,107 +142,18 @@ function reduceChartPoints(rows: Measurement[]) {
 }
 
 const activeThreshold = computed(() => {
-  return summary.value?.threshold ?? datasetState.threshold ?? 0.18
-})
-
-const uploadedMeasurements = computed<Measurement[]>(() => {
-  if (!datasetState.isLoaded) return []
-
-  const threshold = activeThreshold.value
-
-  const baseRows = datasetState.rows.map((row) => {
-    const record = row.record as DatasetRecord
-    const radiationLevel = Number(row.value)
-
-    const explicitAnomaly = parseBooleanValue(getRecordValue(record, [
-      'is_anomaly',
-      'ground_truth',
-      'ground_truth_anomaly',
-      'label',
-      'target',
-    ]))
-
-    const isAnomaly = explicitAnomaly ?? radiationLevel > threshold
-
-    let anomalyType = 'normal'
-
-    if (radiationLevel >= threshold * 2) {
-      anomalyType = 'spike'
-    } else if (radiationLevel >= threshold) {
-      anomalyType = 'warning'
-    }
-    return {
-      timestamp: row.label,
-      radiationLevel,
-      sensorId: normalizeText(
-          getRecordValue(record, ['sensor_id', 'sensor', 'sensor_name', 'detector', 'device', 'station']),
-          'Uploaded CSV',
-      ),
-      location: normalizeText(
-          getRecordValue(record, ['location', 'place', 'room', 'site']),
-          'Uploaded dataset',
-      ),
-      temperature: parseOptionalNumber(
-          getRecordValue(record, ['temperature_c', 'temperature', 'temp', 'temp_c']),
-      ),
-      humidity: parseOptionalNumber(
-          getRecordValue(record, ['humidity_percent', 'humidity', 'rh', 'relative_humidity']),
-      ),
-      isAnomaly,
-      anomalyScore: 0,
-      anomalyType,
-      status: 'Normal',
-    }
-  })
-
-  const distances = baseRows.map((row) => Math.max(0, row.radiationLevel - threshold))
-  const maxDistance = Math.max(...distances, 0)
-
-  return baseRows.map((row, index) => {
-    const anomalyScore = maxDistance > 0
-        ? Number((distances[index] / maxDistance).toFixed(3))
-        : 0
-
-
-    let status = 'Normal'
-
-    if (threshold > 0 && row.radiationLevel >= threshold * 2) {
-      status = 'Critical'
-    } else if (threshold > 0 && row.radiationLevel >= threshold) {
-      status = 'High'
-    }
-
-    return {
-      ...row,
-      anomalyScore,
-      status,
-    }
-  })
+  return summary.value?.threshold ?? 0.18
 })
 
 const allMeasurements = computed(() => {
-  if (isCustomDatasetLoaded.value) {
-    return uploadedMeasurements.value
-  }
-
   return backendMeasurements.value
 })
 
 const allAnomalies = computed(() => {
-  if (isCustomDatasetLoaded.value) {
-    return uploadedMeasurements.value
-        .filter((item) => item.isAnomaly)
-        .sort((a, b) => parseTimestamp(b.timestamp).getTime() - parseTimestamp(a.timestamp).getTime())
-  }
-
   return backendAnomalies.value
 })
 
 const activeDatasetName = computed(() => {
-  if (isCustomDatasetLoaded.value) {
-    return datasetState.name
-  }
-
   return summary.value?.datasetName ?? 'Dataset loading...'
 })
 
@@ -347,6 +182,10 @@ const datasetTimeRange = computed(() => {
 function isInsideSelectedTimeRange(timestamp: string) {
   if (hasCustomDateRange()) {
     return isInsideDateRange(timestamp)
+  }
+
+  if (quickRange.value === 'All') {
+    return true
   }
 
   const datasetRange = datasetTimeRange.value
@@ -495,6 +334,12 @@ function setQuickRange(range: string) {
   fromDate.value = ''
   toDate.value = ''
 
+  if (range === 'All') {
+    quickRange.value = 'All'
+    rangeUnavailableMessage.value = ''
+    return
+  }
+
   const selectedRangeMs = getQuickRangeMs(range)
   const datasetRange = datasetTimeRange.value
 
@@ -518,7 +363,7 @@ function applyCustomDateRange() {
 
 const resetFilters = () => {
   period.value = 'Month'
-  quickRange.value = '24h'
+  quickRange.value = 'All'
   selectedStatus.value = 'All statuses'
   searchQuery.value = ''
   fromDate.value = ''
@@ -537,9 +382,9 @@ async function loadAnomaliesPage() {
       getSummary(),
     ])
 
-    backendMeasurements.value = measurementsResponse as Measurement[]
-    backendAnomalies.value = anomaliesResponse as Measurement[]
-    summary.value = summaryResponse as Summary
+    backendMeasurements.value = measurementsResponse
+    backendAnomalies.value = anomaliesResponse
+    summary.value = summaryResponse
   } catch (error) {
     console.error(error)
     errorMessage.value = 'Backend data could not be loaded. Check if FastAPI is running.'
@@ -699,6 +544,14 @@ onMounted(() => {
           </div>
 
           <div class="overview-actions">
+            <button
+                class="tool-button tool-button--small"
+                :class="{ 'tool-button--active': quickRange === 'All', 'tool-button--ghost': quickRange !== 'All' }"
+                @click="setQuickRange('All')"
+            >
+              All
+            </button>
+
             <button
                 class="tool-button tool-button--small"
                 :class="{ 'tool-button--active': quickRange === '1W', 'tool-button--ghost': quickRange !== '1W' }"

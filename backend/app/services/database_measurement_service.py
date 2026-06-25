@@ -76,8 +76,7 @@ def get_threshold() -> float:
 
 def classify_radiation_event(radiation_level: float, threshold: float) -> tuple[str, str]:
     """
-    Returns:
-    anomaly_type, status
+    UI classification is threshold-based.
 
     Type:
     - normal  -> below threshold
@@ -142,6 +141,7 @@ def get_measurements_from_database(limit: int = 1000) -> list:
     for row in rows:
         radiation_level = float(row["radiation_level"])
         anomaly_type, status = classify_radiation_event(radiation_level, threshold)
+        is_visible_anomaly = bool(row["predicted_anomaly"]) and radiation_level >= threshold
 
         measurements.append(
             {
@@ -151,7 +151,7 @@ def get_measurements_from_database(limit: int = 1000) -> list:
                 "location": str(row["location"]),
                 "temperature": None if row["temperature"] is None else round(float(row["temperature"]), 2),
                 "humidity": None if row["humidity"] is None else round(float(row["humidity"]), 2),
-                "isAnomaly": bool(row["predicted_anomaly"]),
+                "isAnomaly": is_visible_anomaly,
                 "anomalyScore": round(float(row["anomaly_score"]), 4),
                 "anomalyType": anomaly_type,
                 "status": status,

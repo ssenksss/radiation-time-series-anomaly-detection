@@ -1,7 +1,10 @@
+
+To treba izbrisati. `.gitignore` ne sme da ima markdown ogradu.
+
+Stavi ovakav `.gitignore`:
+
 ```gitignore
-# =========================
 # Python
-# =========================
 __pycache__/
 *.py[cod]
 *.pyo
@@ -16,76 +19,48 @@ backend/.venv/
 
 *.log
 
-
-# =========================
-# Environment variables
-# =========================
+# Environment
 .env
 .env.local
 .env.*.local
 backend/.env
 frontend/.env
 frontend/.env.local
-
-# Keep examples
 !.env.example
 
-
-# =========================
 # Node / Vue
-# =========================
 node_modules/
 frontend/node_modules/
-
 dist/
 dist-ssr/
 frontend/dist/
-
 *.local
 
-
-# =========================
 # Database / local storage
-# =========================
 *.db
 *.sqlite
 *.sqlite3
-
 postgres-data/
 pgdata/
 database/data/
 
-
-# =========================
-# Uploaded files / generated data
-# =========================
+# Uploaded / generated datasets
 uploads/
 backend/uploads/
-
-# Keep mock dataset if it is part of the project,
-# but do not commit real uploaded datasets by accident.
-ml/datasets/real_*.csv
-ml/datasets/uploaded_*.csv
-
-
-# =========================
-# ML generated outputs
-# =========================
+ml/datasets/uploads/
 ml/outputs/*
 !ml/outputs/.gitkeep
 
+# Local data files
+backend/app/data/*.csv
+!backend/app/data/.gitkeep
 
-# =========================
-# System files
-# =========================
+# System
 .DS_Store
-__MACOSX__
+__MACOSX/
+__MACOSX__/
 
-
-# =========================
-# IDE / editors
-# =========================
+# IDE
 .idea/
 .vscode/
 *.iml
-```

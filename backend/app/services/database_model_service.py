@@ -127,6 +127,38 @@ def get_latest_metrics_for_model(dataset_id: int, model_name: str) -> dict:
     return row
 
 
+def get_model_score_stats(dataset_id: int, model_name: str) -> dict:
+    row = fetch_one(
+        """
+        SELECT
+            COUNT(*) AS total_records,
+            SUM(CASE WHEN predicted_anomaly = TRUE THEN 1 ELSE 0 END) AS total_anomalies,
+            AVG(anomaly_score) AS avg_score,
+            AVG(CASE WHEN predicted_anomaly = TRUE THEN anomaly_score ELSE NULL END) AS avg_anomaly_score,
+            AVG(CASE WHEN predicted_anomaly = FALSE THEN anomaly_score ELSE NULL END) AS avg_normal_score,
+            MIN(anomaly_score) AS min_score,
+            MAX(anomaly_score) AS max_score
+        FROM anomaly_results
+        WHERE dataset_id = %s
+          AND model_name = %s;
+        """,
+        (dataset_id, model_name),
+    )
+
+    if not row:
+        return {
+            "total_records": 0,
+            "total_anomalies": 0,
+            "avg_score": None,
+            "avg_anomaly_score": None,
+            "avg_normal_score": None,
+            "min_score": None,
+            "max_score": None,
+        }
+
+    return row
+
+
 def get_confusion_matrix(dataset_id: int, model_name: str) -> dict:
     row = fetch_one(
         """
@@ -170,24 +202,131 @@ def normalize_selection(model_a: Optional[str], model_b: Optional[str]) -> tuple
     return selected_a, selected_b
 
 
-def build_model_item(model_id: str, metrics: dict, active_model_id: str) -> dict:
-    model_name = MODEL_ID_TO_NAME.get(model_id, "Unknown Model")
-    is_pending = model_id == "rnn" or metrics["accuracy"] is None
+def get_evaluation_mode(metrics: dict, model_id: str) -> str:
+    if model_id == "rnn":
+        return "pending"
 
-    if is_pending:
+    total_records = int(metrics.get("total_records") or 0)
+
+    if total_records <= 0:
+        return "pending"
+
+    if metrics.get("accuracy") is None:
+        return "unsupervised"
+
+    return "supervised"
+
+
+def calculate_model_score(dataset_id: int, model_name: str, metrics: dict) -> Optional[float]:
+    total_records = int(metrics.get("total_records") or 0)
+    total_anomalies = int(metrics.get("total_anomalies") or 0)
+
+    if total_records <= 0:
+        return None
+
+    if total_anomalies <= 0:
+        return 100.0
+
+    score_stats = get_model_score_stats(dataset_id, model_name)
+
+    anomaly_rate = total_anomalies / total_records
+
+    avg_anomaly_score = score_stats.get("avg_anomaly_score")
+    avg_normal_score = score_stats.get("avg_normal_score")
+    min_score = score_stats.get("min_score")
+    max_score = score_stats.get("max_score")
+
+    if (
+            avg_anomaly_score is None
+            or avg_normal_score is None
+            or min_score is None
+            or max_score is None
+    ):
+        fallback_score = (1 - anomaly_rate) * 100
+        return round(max(0, min(100, fallback_score)), 2)
+
+    avg_anomaly_score = float(avg_anomaly_score)
+    avg_normal_score = float(avg_normal_score)
+    min_score = float(min_score)
+    max_score = float(max_score)
+
+    score_range = max_score - min_score
+
+    if score_range <= 0:
+        fallback_score = (1 - anomaly_rate) * 100
+        return round(max(0, min(100, fallback_score)), 2)
+
+    separation = abs(avg_anomaly_score - avg_normal_score) / score_range
+    separation = max(0, min(1, separation))
+
+    normal_rate_component = (1 - anomaly_rate) * 70
+    separation_component = separation * 30
+
+    model_score = normal_rate_component + separation_component
+
+    return round(max(0, min(100, model_score)), 2)
+
+
+def calculate_anomaly_rate(metrics: dict) -> Optional[float]:
+    total_records = int(metrics.get("total_records") or 0)
+    total_anomalies = int(metrics.get("total_anomalies") or 0)
+
+    if total_records <= 0:
+        return None
+
+    return round((total_anomalies / total_records) * 100, 3)
+
+
+def build_model_item(
+        model_id: str,
+        metrics: dict,
+        active_model_id: str,
+        dataset_id: int,
+) -> dict:
+    model_name = MODEL_ID_TO_NAME.get(model_id, "Unknown Model")
+    evaluation_mode = get_evaluation_mode(metrics, model_id)
+
+    total_records = int(metrics.get("total_records") or 0)
+    total_anomalies = int(metrics.get("total_anomalies") or 0)
+    model_score = calculate_model_score(dataset_id, model_name, metrics)
+    anomaly_rate = calculate_anomaly_rate(metrics)
+
+    if evaluation_mode == "pending":
         return {
             "id": model_id,
             "model": model_name,
             "score": None,
+            "modelScore": None,
             "accuracy": None,
             "precision": None,
             "recall": None,
             "fpr": None,
             "fnr": None,
-            "totalRecords": int(metrics.get("total_records") or 0),
-            "totalAnomalies": int(metrics.get("total_anomalies") or 0),
+            "evaluationMode": "pending",
+            "totalRecords": total_records,
+            "totalAnomalies": total_anomalies,
+            "anomalyRate": anomaly_rate,
             "active": model_id == active_model_id,
             "status": "Pending ML implementation" if model_id == "rnn" else "No metrics available",
+        }
+
+    if evaluation_mode == "unsupervised":
+        return {
+            "id": model_id,
+            "model": model_name,
+            "score": model_score,
+            "modelScore": model_score,
+            "accuracy": None,
+            "precision": None,
+            "recall": None,
+            "fpr": None,
+            "fnr": None,
+            "evaluationMode": "unsupervised",
+            "totalRecords": total_records,
+            "totalAnomalies": total_anomalies,
+            "anomalyRate": anomaly_rate,
+            "active": model_id == active_model_id,
+            "status": "Active" if model_id == active_model_id else "Implemented",
         }
 
     accuracy = round(float(metrics["accuracy"] or 0), 2)
@@ -200,13 +339,16 @@ def build_model_item(model_id: str, metrics: dict, active_model_id: str) -> dict
         "id": model_id,
         "model": model_name,
         "score": accuracy,
+        "modelScore": model_score,
         "accuracy": accuracy,
         "precision": precision,
         "recall": recall,
         "fpr": fpr,
         "fnr": fnr,
-        "totalRecords": int(metrics["total_records"] or 0),
-        "totalAnomalies": int(metrics["total_anomalies"] or 0),
+        "evaluationMode": "supervised",
+        "totalRecords": total_records,
+        "totalAnomalies": total_anomalies,
+        "anomalyRate": anomaly_rate,
         "active": model_id == active_model_id,
         "status": "Active" if model_id == active_model_id else "Implemented",
     }
@@ -244,13 +386,24 @@ def get_model_info_from_database(
 
     active_metrics = metrics_by_id.get(active_model_id, isolation_metrics)
     active_model_name = MODEL_ID_TO_NAME.get(active_model_id, "Isolation Forest")
+    active_evaluation_mode = get_evaluation_mode(active_metrics, active_model_id)
     confusion_matrix = get_confusion_matrix(dataset_id, active_model_name)
 
-    accuracy = round(float(active_metrics["accuracy"] or 0), 2)
-    precision = round(float(active_metrics["precision_score"] or 0), 4)
-    recall = round(float(active_metrics["recall_score"] or 0), 4)
-    fpr = round(float(active_metrics["fpr"] or 0), 4)
-    fnr = round(float(active_metrics["fnr"] or 0), 4)
+    active_model_score = calculate_model_score(dataset_id, active_model_name, active_metrics)
+    active_anomaly_rate = calculate_anomaly_rate(active_metrics)
+
+    accuracy = None
+    precision = None
+    recall = None
+    fpr = None
+    fnr = None
+
+    if active_evaluation_mode == "supervised":
+        accuracy = round(float(active_metrics["accuracy"] or 0), 2)
+        precision = round(float(active_metrics["precision_score"] or 0), 4)
+        recall = round(float(active_metrics["recall_score"] or 0), 4)
+        fpr = round(float(active_metrics["fpr"] or 0), 4)
+        fnr = round(float(active_metrics["fnr"] or 0), 4)
 
     response = {
         "currentModel": active_model_name,
@@ -259,6 +412,11 @@ def get_model_info_from_database(
         "recall": recall,
         "fpr": fpr,
         "fnr": fnr,
+        "modelScore": active_model_score,
+        "evaluationMode": active_evaluation_mode,
+        "totalRecords": int(active_metrics["total_records"] or 0),
+        "totalAnomalies": int(active_metrics["total_anomalies"] or 0),
+        "anomalyRate": active_anomaly_rate,
         "source": "Model metrics loaded from PostgreSQL model_metrics table.",
         "availableModels": AVAILABLE_MODELS,
         "selectedModels": {
@@ -266,11 +424,19 @@ def get_model_info_from_database(
             "modelB": selected_model_b,
         },
         "confusionMatrix": confusion_matrix,
-        "totalRecords": int(active_metrics["total_records"] or 0),
-        "totalAnomalies": int(active_metrics["total_anomalies"] or 0),
         "comparison": [
-            build_model_item(selected_model_a, metrics_by_id[selected_model_a], active_model_id),
-            build_model_item(selected_model_b, metrics_by_id[selected_model_b], active_model_id),
+            build_model_item(
+                selected_model_a,
+                metrics_by_id[selected_model_a],
+                active_model_id,
+                dataset_id,
+            ),
+            build_model_item(
+                selected_model_b,
+                metrics_by_id[selected_model_b],
+                active_model_id,
+                dataset_id,
+            ),
         ],
     }
 
