@@ -6,8 +6,6 @@ It was developed as part of my Bachelor’s thesis. The main idea was to create 
 
 The application is an academic prototype and is not intended to be used as a real radiation safety system.
 
----
-
 ## About the Project
 
 The system works with radiation measurement datasets imported from CSV or ZIP files. After the data is uploaded, it is stored in PostgreSQL and processed through several steps: raw data storage, cleaning, feature creation, anomaly detection, model evaluation and visualization.
@@ -16,28 +14,24 @@ I used PostgreSQL as the main storage layer because I wanted the project to have
 
 The project also includes an ELT-style workflow. Data is first loaded into the database and then transformed through Python scripts. This made it easier to keep the original data separated from the processed data.
 
----
-
 ## Main Features
 
 The application includes:
 
-* dashboard for radiation level visualization,
-* CSV and ZIP dataset upload,
-* PostgreSQL database integration,
-* data cleaning and standardization,
-* feature engineering for time-series data,
-* threshold-based anomaly detection,
-* Isolation Forest model,
-* Local Outlier Factor model,
-* model comparison and evaluation,
-* train/test evaluation,
-* analytical SQL views,
-* generated reports for reviewing the ML pipeline.
+* dashboard for radiation level visualization
+* CSV and ZIP dataset upload
+* PostgreSQL database integration
+* data cleaning and standardization
+* feature engineering for time-series data
+* threshold-based anomaly detection
+* Isolation Forest model
+* Local Outlier Factor model
+* model comparison and evaluation
+* train/test evaluation
+* analytical SQL views
+* generated reports for reviewing the ML pipeline
 
 The dashboard shows radiation measurements, detected anomalies, alert status, model metrics and recent anomaly events.
-
----
 
 ## Technology Stack
 
@@ -65,8 +59,6 @@ Data processing and machine learning:
 * Local Outlier Factor
 * StandardScaler
 
----
-
 ## Data and Database
 
 The project supports a sample labeled dataset and external CSV/ZIP datasets.
@@ -87,8 +79,6 @@ Main database tables:
 | `model_metrics`        | Stores model evaluation metrics.                     |
 | `app_settings`         | Stores active threshold, model and dataset settings. |
 
----
-
 ## Machine Learning
 
 The project uses a simple threshold method as a baseline and two machine learning models for anomaly detection:
@@ -102,8 +92,6 @@ The project uses a simple threshold method as a baseline and two machine learnin
 Before applying the models, the data is cleaned and transformed into features such as time-based values, rolling mean, rolling standard deviation and radiation difference.
 
 For the data science part, I added a chronological train/test split. Since the dataset represents a time series, the first 70% of measurements are used for training and the last 30% for testing.
-
----
 
 ## Analytical Part
 
@@ -130,8 +118,6 @@ Additional documentation is available in:
 docs/ELT_ARCHITECTURE.md
 docs/REQUIREMENTS_MAPPING.md
 ```
-
----
 
 ## Project Structure
 
@@ -177,8 +163,6 @@ docs/
   ELT_ARCHITECTURE.md
   REQUIREMENTS_MAPPING.md
 ```
-
----
 
 ## Running the Project
 
@@ -239,21 +223,15 @@ The backend runs at:
 http://127.0.0.1:8000
 ```
 
----
-
 ## Current Status
 
 The current version includes the main parts of the prototype: frontend dashboard, FastAPI backend, PostgreSQL database, CSV/ZIP upload, ELT processing, machine learning anomaly detection, model evaluation, analytical views and generated reports.
 
 Possible future improvements include real-time sensor connection, IoT integration, user authentication, exportable reports and more advanced time-series models.
 
----
-
 ## Limitations
 
 This project is only an academic prototype. It should not be used for real radiation safety decisions without validated data, calibrated sensors, expert review, production alerting and proper security.
-
----
 
 ## Author
 
