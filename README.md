@@ -1,8 +1,10 @@
 # Radiation Monitoring Anomaly Detection System
 
+Bachelor’s thesis project: **Radiation Level Monitoring System with Traditionally Trained Machine Learning Models and a Decision Support Framework Developed Using Generative Artificial Intelligence**
+
 This project is a web prototype for monitoring radiation measurements and detecting unusual values in time-series data.
 
-It was developed as part of my Bachelor’s thesis. The main idea was to create an application that can load radiation measurement data, store it in a database, process it, apply anomaly detection models and present the results through a dashboard.
+The main idea was to create an application that can load radiation measurement data, store it in a database, process it, apply anomaly detection models and present the results through a dashboard.
 
 The application is an academic prototype and is not intended to be used as a real radiation safety system.
 
@@ -237,4 +239,5 @@ This project is only an academic prototype. It should not be used for real radia
 
 Ksenija Raković
 Bachelor’s Thesis Project
-Radiation Monitoring and Anomaly Detection Prototype
+
+**Radiation Level Monitoring System with Traditionally Trained Machine Learning Models and a Decision Support Framework Developed Using Generative Artificial Intelligence**
