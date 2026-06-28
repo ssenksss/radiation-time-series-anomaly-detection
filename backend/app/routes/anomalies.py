@@ -8,6 +8,19 @@ router = APIRouter(tags=["anomalies"])
 MODEL_ID_TO_NAME = {
     "isolation_forest": "Isolation Forest",
     "lof": "Local Outlier Factor",
+    "one_class_svm": "One-Class SVM",
+    "elliptic_envelope": "Elliptic Envelope",
+    "dbscan": "DBSCAN",
+    "kmeans_distance": "K-Means Distance",
+    "gaussian_mixture": "Gaussian Mixture Model",
+    "pca_reconstruction": "PCA Reconstruction Error",
+    "hbos": "HBOS",
+    "ecod": "ECOD",
+    "logistic_regression": "Logistic Regression",
+    "decision_tree": "Decision Tree",
+    "random_forest": "Random Forest",
+    "gradient_boosting": "Gradient Boosting",
+    "knn_classifier": "KNN Classifier",
     "rnn": "Recurrent Neural Network",
 }
 
@@ -20,16 +33,46 @@ def normalize_model_id(model_id: str) -> str:
         "isolationforest": "isolation_forest",
         "isolation": "isolation_forest",
         "iforest": "isolation_forest",
-
         "local_outlier_factor": "lof",
         "localoutlierfactor": "lof",
         "lof": "lof",
-
+        "one_class_svm": "one_class_svm",
+        "oneclasssvm": "one_class_svm",
+        "ocsvm": "one_class_svm",
+        "elliptic_envelope": "elliptic_envelope",
+        "ellipticenvelope": "elliptic_envelope",
+        "dbscan": "dbscan",
+        "kmeans_distance": "kmeans_distance",
+        "k_means_distance": "kmeans_distance",
+        "kmeans": "kmeans_distance",
+        "gaussian_mixture": "gaussian_mixture",
+        "gaussian_mixture_model": "gaussian_mixture",
+        "gmm": "gaussian_mixture",
+        "pca_reconstruction": "pca_reconstruction",
+        "pca_reconstruction_error": "pca_reconstruction",
+        "pca": "pca_reconstruction",
+        "hbos": "hbos",
+        "ecod": "ecod",
+        "logistic_regression": "logistic_regression",
+        "logreg": "logistic_regression",
+        "decision_tree": "decision_tree",
+        "decisiontree": "decision_tree",
+        "random_forest": "random_forest",
+        "randomforest": "random_forest",
+        "gradient_boosting": "gradient_boosting",
+        "gradientboosting": "gradient_boosting",
+        "knn_classifier": "knn_classifier",
+        "knn": "knn_classifier",
         "recurrent_neural_network": "rnn",
         "rnn": "rnn",
     }
 
-    return aliases.get(normalized, "isolation_forest")
+    resolved = aliases.get(normalized, normalized)
+
+    if resolved in MODEL_ID_TO_NAME:
+        return resolved
+
+    return "isolation_forest"
 
 
 def get_active_dataset_id() -> int:

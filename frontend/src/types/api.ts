@@ -25,10 +25,15 @@ export interface Summary {
 }
 
 export type EvaluationMode = 'supervised' | 'unsupervised' | 'pending'
+export type ModelCategory = 'unsupervised' | 'supervised' | 'future'
 
 export interface ModelComparisonItem {
     id: string
     model: string
+    category?: ModelCategory
+    requiresLabels?: boolean
+    enabled?: boolean
+    disabledReason?: string | null
     score: number | null
     modelScore?: number | null
     accuracy: number | null
@@ -48,6 +53,10 @@ export interface AvailableModel {
     id: string
     name: string
     status: string
+    category?: ModelCategory
+    requiresLabels?: boolean
+    enabled?: boolean
+    disabledReason?: string | null
 }
 
 export interface SelectedModels {
@@ -62,8 +71,15 @@ export interface ConfusionMatrix {
     fn: number
 }
 
+export interface ModelInfoGroups {
+    unsupervised: string[]
+    supervised: string[]
+    future: string[]
+}
+
 export interface ModelInfo {
     currentModel: string
+    activeModelId?: string
     accuracy: number | null
     precision: number | null
     recall?: number | null
@@ -71,6 +87,8 @@ export interface ModelInfo {
     fnr?: number | null
     modelScore?: number | null
     evaluationMode?: EvaluationMode
+    datasetHasLabels?: boolean
+    hasLabels?: boolean
     totalRecords?: number
     totalAnomalies?: number
     anomalyRate?: number | null
@@ -79,6 +97,7 @@ export interface ModelInfo {
     selectedModels: SelectedModels
     confusionMatrix: ConfusionMatrix
     comparison: ModelComparisonItem[]
+    groups?: ModelInfoGroups
     lastTrainedAt?: string
 }
 

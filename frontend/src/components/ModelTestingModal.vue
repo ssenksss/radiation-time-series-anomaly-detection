@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { getModelInfo } from '../services/api'
-import type { AvailableModel, ModelComparisonItem, ModelInfo } from '../types/api'
+import type { AvailableModel, ModelComparisonItem, ModelInfo, ModelCategory } from '../types/api'
 
 const props = defineProps<{
   isOpen: boolean
@@ -17,22 +17,35 @@ const fallbackModels: AvailableModel[] = [
     id: 'isolation_forest',
     name: 'Isolation Forest',
     status: 'implemented',
+    category: 'unsupervised',
+    requiresLabels: false,
+    enabled: true,
+    disabledReason: null,
   },
   {
     id: 'lof',
     name: 'Local Outlier Factor',
     status: 'implemented',
+    category: 'unsupervised',
+    requiresLabels: false,
+    enabled: true,
+    disabledReason: null,
   },
   {
     id: 'rnn',
     name: 'Recurrent Neural Network',
     status: 'pending',
+    category: 'future',
+    requiresLabels: false,
+    enabled: false,
+    disabledReason: 'Pending implementation',
   },
 ]
 
 const modelInfo = ref<ModelInfo | null>(null)
 const selectedModelA = ref('isolation_forest')
-const selectedModelB = ref('lof')
+const selectedModelB = ref('hbos')
+const selectedCategory = ref<ModelCategory>('unsupervised')
 
 const isLoading = ref(false)
 const errorMessage = ref('')
@@ -41,6 +54,53 @@ const availableModels = computed(() => {
   return modelInfo.value?.availableModels?.length
       ? modelInfo.value.availableModels
       : fallbackModels
+})
+
+const datasetHasLabels = computed(() => {
+  return Boolean(modelInfo.value?.datasetHasLabels ?? modelInfo.value?.hasLabels)
+})
+
+const unsupervisedModels = computed(() =>
+    availableModels.value.filter((model) => model.category === 'unsupervised'),
+)
+
+const supervisedModels = computed(() =>
+    availableModels.value.filter((model) => model.category === 'supervised'),
+)
+
+const futureModels = computed(() =>
+    availableModels.value.filter((model) => model.category === 'future'),
+)
+
+const categoryTabs = computed(() => [
+  {
+    id: 'unsupervised' as ModelCategory,
+    label: 'Unsupervised',
+    count: unsupervisedModels.value.length,
+    disabled: false,
+    hint: 'Works with labeled and unlabeled datasets',
+  },
+  {
+    id: 'supervised' as ModelCategory,
+    label: 'Supervised',
+    count: supervisedModels.value.length,
+    disabled: !datasetHasLabels.value,
+    hint: datasetHasLabels.value
+        ? 'Available because this dataset contains is_anomaly'
+        : 'Requires is_anomaly labels',
+  },
+])
+
+const categoryModels = computed(() => {
+  if (selectedCategory.value === 'supervised') {
+    return supervisedModels.value
+  }
+
+  return unsupervisedModels.value
+})
+
+const selectableModels = computed(() => {
+  return categoryModels.value.filter((model) => isModelEnabled(model))
 })
 
 const comparisonItems = computed<ModelComparisonItem[]>(() => {
@@ -59,7 +119,12 @@ const modelBName = computed(() => {
 })
 
 const isUnsupervised = computed(() => {
-  return modelInfo.value?.evaluationMode === 'unsupervised'
+  const first = modelAResult.value
+
+  if (first?.category === 'unsupervised') return true
+  if (first?.category === 'supervised') return false
+
+  return selectedCategory.value === 'unsupervised'
 })
 
 const activeModelName = computed(() => {
@@ -67,14 +132,15 @@ const activeModelName = computed(() => {
 })
 
 const primaryMetricLabel = computed(() => {
-  if (modelInfo.value?.evaluationMode === 'unsupervised') return 'Model Score'
+  if (isUnsupervised.value && !datasetHasLabels.value) return 'Model Score'
+  if (isUnsupervised.value && datasetHasLabels.value) return 'Accuracy'
   if (modelInfo.value?.evaluationMode === 'supervised') return 'Accuracy'
 
   return 'Model Status'
 })
 
 const primaryMetricValue = computed(() => {
-  if (modelInfo.value?.evaluationMode === 'unsupervised') {
+  if (isUnsupervised.value && !datasetHasLabels.value) {
     return modelAResult.value?.modelScore ??
         modelAResult.value?.score ??
         modelInfo.value?.modelScore ??
@@ -94,7 +160,8 @@ const hasResults = computed(() => comparisonItems.value.length > 0)
 
 const bars = computed(() =>
     comparisonItems.value.map((item, index) => {
-      const displayScore = item.evaluationMode === 'unsupervised'
+      const useModelScore = item.evaluationMode === 'unsupervised' && !datasetHasLabels.value
+      const displayScore = useModelScore
           ? item.modelScore ?? item.score
           : item.accuracy ?? item.score
 
@@ -109,20 +176,76 @@ const bars = computed(() =>
         active: index === 0,
         pending: isPending,
         status: item.status,
-        subtitle: item.evaluationMode === 'unsupervised'
-            ? `${formatNumber(item.totalAnomalies)} anomalies · ${formatPercent(item.anomalyRate, 3)} rate`
-            : `Precision ${formatMetric(item.precision)}`,
+        subtitle: buildBarSubtitle(item),
       }
     }),
 )
 
 const comparisonRows = computed(() => {
-  if (isUnsupervised.value) {
-    return [
+  const rows = []
+
+  if (isUnsupervised.value && !datasetHasLabels.value) {
+    rows.push(
+        {
+          metric: 'Model Score',
+          modelA: formatPercent(modelAResult.value?.modelScore ?? modelAResult.value?.score),
+          modelB: formatPercent(modelBResult.value?.modelScore ?? modelBResult.value?.score),
+        },
+        {
+          metric: 'Detected Anomalies',
+          modelA: formatNumber(modelAResult.value?.totalAnomalies),
+          modelB: formatNumber(modelBResult.value?.totalAnomalies),
+        },
+        {
+          metric: 'Total Records',
+          modelA: formatNumber(modelAResult.value?.totalRecords),
+          modelB: formatNumber(modelBResult.value?.totalRecords),
+        },
+        {
+          metric: 'Anomaly Rate',
+          modelA: formatPercent(modelAResult.value?.anomalyRate, 3),
+          modelB: formatPercent(modelBResult.value?.anomalyRate, 3),
+        },
+        {
+          metric: 'Evaluation',
+          modelA: 'Unsupervised',
+          modelB: 'Unsupervised',
+        },
+        {
+          metric: 'Status',
+          modelA: modelAResult.value?.status ?? 'N/A',
+          modelB: modelBResult.value?.status ?? 'N/A',
+        },
+    )
+
+    return rows
+  }
+
+  rows.push(
       {
-        metric: 'Model Score',
-        modelA: formatPercent(modelAResult.value?.modelScore ?? modelAResult.value?.score),
-        modelB: formatPercent(modelBResult.value?.modelScore ?? modelBResult.value?.score),
+        metric: 'Accuracy',
+        modelA: formatPercent(modelAResult.value?.accuracy),
+        modelB: formatPercent(modelBResult.value?.accuracy),
+      },
+      {
+        metric: 'Precision',
+        modelA: formatMetric(modelAResult.value?.precision),
+        modelB: formatMetric(modelBResult.value?.precision),
+      },
+      {
+        metric: 'Recall',
+        modelA: formatMetric(modelAResult.value?.recall),
+        modelB: formatMetric(modelBResult.value?.recall),
+      },
+      {
+        metric: 'FPR',
+        modelA: formatMetric(modelAResult.value?.fpr),
+        modelB: formatMetric(modelBResult.value?.fpr),
+      },
+      {
+        metric: 'FNR',
+        modelA: formatMetric(modelAResult.value?.fnr),
+        modelB: formatMetric(modelBResult.value?.fnr),
       },
       {
         metric: 'Detected Anomalies',
@@ -130,78 +253,83 @@ const comparisonRows = computed(() => {
         modelB: formatNumber(modelBResult.value?.totalAnomalies),
       },
       {
-        metric: 'Total Records',
-        modelA: formatNumber(modelAResult.value?.totalRecords),
-        modelB: formatNumber(modelBResult.value?.totalRecords),
-      },
-      {
-        metric: 'Anomaly Rate',
-        modelA: formatPercent(modelAResult.value?.anomalyRate, 3),
-        modelB: formatPercent(modelBResult.value?.anomalyRate, 3),
-      },
-      {
-        metric: 'Evaluation',
-        modelA: 'Unsupervised',
-        modelB: 'Unsupervised',
+        metric: 'Category',
+        modelA: formatCategory(modelAResult.value?.category),
+        modelB: formatCategory(modelBResult.value?.category),
       },
       {
         metric: 'Status',
         modelA: modelAResult.value?.status ?? 'N/A',
         modelB: modelBResult.value?.status ?? 'N/A',
       },
-    ]
-  }
+  )
 
-  return [
-    {
-      metric: 'Accuracy',
-      modelA: formatPercent(modelAResult.value?.accuracy),
-      modelB: formatPercent(modelBResult.value?.accuracy),
-    },
-    {
-      metric: 'Precision',
-      modelA: formatMetric(modelAResult.value?.precision),
-      modelB: formatMetric(modelBResult.value?.precision),
-    },
-    {
-      metric: 'Recall',
-      modelA: formatMetric(modelAResult.value?.recall),
-      modelB: formatMetric(modelBResult.value?.recall),
-    },
-    {
-      metric: 'FPR',
-      modelA: formatMetric(modelAResult.value?.fpr),
-      modelB: formatMetric(modelBResult.value?.fpr),
-    },
-    {
-      metric: 'FNR',
-      modelA: formatMetric(modelAResult.value?.fnr),
-      modelB: formatMetric(modelBResult.value?.fnr),
-    },
-    {
-      metric: 'Status',
-      modelA: modelAResult.value?.status ?? 'N/A',
-      modelB: modelBResult.value?.status ?? 'N/A',
-    },
-  ]
+  return rows
 })
 
 const evaluationNote = computed(() => {
-  if (modelInfo.value?.evaluationMode === 'unsupervised') {
-    return 'Real dataset does not contain manual anomaly labels, so the app shows Model Score, detected anomalies and anomaly rate.'
+  if (selectedCategory.value === 'supervised' && !datasetHasLabels.value) {
+    return 'Supervised models require a labeled dataset with is_anomaly. They are disabled for the current dataset.'
   }
 
-  if (modelInfo.value?.evaluationMode === 'supervised') {
-    return 'This dataset contains anomaly labels, so the app shows Accuracy, Precision, Recall, FPR and FNR.'
+  if (selectedCategory.value === 'supervised') {
+    return 'This dataset contains is_anomaly labels, so supervised models can be trained and evaluated with Accuracy, Precision, Recall, FPR and FNR.'
   }
 
-  return 'Model metrics will be available after training.'
+  if (datasetHasLabels.value) {
+    return 'This labeled dataset allows objective evaluation of unsupervised anomaly detectors using Accuracy, Precision, Recall, FPR and FNR.'
+  }
+
+  return 'Real unlabeled datasets do not contain manual anomaly labels, so the app shows Model Score, detected anomalies and anomaly rate.'
 })
 
 function getModelName(modelId: string) {
   const model = availableModels.value.find((item) => item.id === modelId)
 
   return model?.name ?? modelId
+}
+
+function getModelById(modelId: string) {
+  return availableModels.value.find((item) => item.id === modelId) ?? null
+}
+
+function isModelEnabled(model: AvailableModel) {
+  return model.enabled !== false && model.status === 'implemented'
+}
+
+function modelStatusLabel(model: AvailableModel) {
+  if (model.status !== 'implemented') return 'Pending ML'
+  if (model.enabled === false) return 'Unavailable'
+
+  return model.category === 'supervised' ? 'Requires labels' : 'Available'
+}
+
+function buildOptionLabel(model: AvailableModel) {
+  const status = modelStatusLabel(model)
+
+  if (model.disabledReason) {
+    return `${model.name} · ${status}`
+  }
+
+  return `${model.name} · ${status}`
+}
+
+function buildBarSubtitle(item: ModelComparisonItem) {
+  if (item.status.toLowerCase().includes('pending')) return 'Pending implementation'
+
+  if (item.category === 'unsupervised' && !datasetHasLabels.value) {
+    return `${formatNumber(item.totalAnomalies)} anomalies · ${formatPercent(item.anomalyRate, 3)} rate`
+  }
+
+  return `Precision ${formatMetric(item.precision)} · Recall ${formatMetric(item.recall)}`
+}
+
+function formatCategory(category: ModelComparisonItem['category'] | undefined) {
+  if (category === 'unsupervised') return 'Unsupervised'
+  if (category === 'supervised') return 'Supervised'
+  if (category === 'future') return 'Future'
+
+  return 'N/A'
 }
 
 function formatPercent(value: number | null | undefined, digits = 1) {
@@ -222,8 +350,39 @@ function formatNumber(value: number | null | undefined) {
   return Number(value).toLocaleString()
 }
 
-function modelStatusLabel(model: AvailableModel) {
-  return model.status === 'implemented' ? 'Available' : 'Pending ML'
+function syncCategoryFromModel(modelId: string) {
+  const model = getModelById(modelId)
+
+  if (model?.category === 'supervised' || model?.category === 'unsupervised') {
+    selectedCategory.value = model.category
+  }
+}
+
+function ensureValidSelection() {
+  const enabled = selectableModels.value
+
+  if (!enabled.length) {
+    selectedCategory.value = 'unsupervised'
+    return
+  }
+
+  const selectedA = getModelById(selectedModelA.value)
+  const selectedB = getModelById(selectedModelB.value)
+
+  if (!selectedA || selectedA.category !== selectedCategory.value || !isModelEnabled(selectedA)) {
+    selectedModelA.value = enabled[0]?.id ?? 'isolation_forest'
+  }
+
+  if (
+      !selectedB ||
+      selectedB.category !== selectedCategory.value ||
+      !isModelEnabled(selectedB) ||
+      selectedModelB.value === selectedModelA.value
+  ) {
+    selectedModelB.value = enabled.find((model) => model.id !== selectedModelA.value)?.id ??
+        enabled[0]?.id ??
+        'hbos'
+  }
 }
 
 async function loadModelInfo() {
@@ -234,8 +393,12 @@ async function loadModelInfo() {
     const response = await getModelInfo(selectedModelA.value, selectedModelB.value)
 
     modelInfo.value = response
+
     selectedModelA.value = response.selectedModels.modelA
     selectedModelB.value = response.selectedModels.modelB
+
+    syncCategoryFromModel(selectedModelA.value)
+    ensureValidSelection()
 
     emit('updated', response)
   } catch (error) {
@@ -246,19 +409,31 @@ async function loadModelInfo() {
   }
 }
 
+function handleCategoryChange(category: ModelCategory) {
+  if (category === 'supervised' && !datasetHasLabels.value) return
+
+  selectedCategory.value = category
+  ensureValidSelection()
+  loadModelInfo()
+}
+
 function handleModelAChange() {
+  ensureValidSelection()
+
   if (selectedModelA.value === selectedModelB.value) {
-    const replacement = availableModels.value.find((model) => model.id !== selectedModelA.value)
-    selectedModelB.value = replacement?.id ?? 'isolation_forest'
+    const replacement = selectableModels.value.find((model) => model.id !== selectedModelA.value)
+    selectedModelB.value = replacement?.id ?? selectedModelB.value
   }
 
   loadModelInfo()
 }
 
 function handleModelBChange() {
+  ensureValidSelection()
+
   if (selectedModelA.value === selectedModelB.value) {
-    const replacement = availableModels.value.find((model) => model.id !== selectedModelB.value)
-    selectedModelA.value = replacement?.id ?? 'isolation_forest'
+    const replacement = selectableModels.value.find((model) => model.id !== selectedModelB.value)
+    selectedModelA.value = replacement?.id ?? selectedModelA.value
   }
 
   loadModelInfo()
@@ -284,11 +459,42 @@ watch(
             <p class="modal-card__eyebrow">Model Testing</p>
             <h2>Compare detection models</h2>
             <p class="modal-card__subtitle">
-              Compare model performance. Labeled datasets show Accuracy, while real unlabeled datasets show Model Score.
+              Compare 10 unsupervised anomaly detectors and 5 supervised classifiers when labels are available.
             </p>
           </div>
 
           <button class="close-button" type="button" @click="emit('close')">✕</button>
+        </div>
+
+        <div class="dataset-mode-card">
+          <div>
+            <span class="dataset-mode-card__label">Dataset mode</span>
+            <strong>{{ datasetHasLabels ? 'Labeled dataset' : 'Unlabeled dataset' }}</strong>
+          </div>
+          <p>
+            {{ datasetHasLabels
+              ? 'Supervised and unsupervised model evaluation is available.'
+              : 'Only unsupervised anomaly detection models are available for this dataset.' }}
+          </p>
+        </div>
+
+        <div class="model-category-tabs">
+          <button
+              v-for="tab in categoryTabs"
+              :key="tab.id"
+              class="category-tab"
+              :class="{
+              'category-tab--active': selectedCategory === tab.id,
+              'category-tab--disabled': tab.disabled,
+            }"
+              type="button"
+              :disabled="tab.disabled || isLoading"
+              @click="handleCategoryChange(tab.id)"
+          >
+            <span>{{ tab.label }}</span>
+            <strong>{{ tab.count }}</strong>
+            <small>{{ tab.hint }}</small>
+          </button>
         </div>
 
         <div class="model-selector-grid">
@@ -305,14 +511,21 @@ watch(
                 @change="handleModelAChange"
             >
               <option
-                  v-for="model in availableModels"
+                  v-for="model in categoryModels"
                   :key="model.id"
                   :value="model.id"
-                  :disabled="model.id === selectedModelB"
+                  :disabled="model.id === selectedModelB || !isModelEnabled(model)"
               >
-                {{ model.name }} · {{ modelStatusLabel(model) }}
+                {{ buildOptionLabel(model) }}
               </option>
             </select>
+
+            <p
+                v-if="getModelById(selectedModelA)?.disabledReason"
+                class="select-hint"
+            >
+              {{ getModelById(selectedModelA)?.disabledReason }}
+            </p>
           </div>
 
           <div class="model-vs">vs</div>
@@ -330,15 +543,26 @@ watch(
                 @change="handleModelBChange"
             >
               <option
-                  v-for="model in availableModels"
+                  v-for="model in categoryModels"
                   :key="model.id"
                   :value="model.id"
-                  :disabled="model.id === selectedModelA"
+                  :disabled="model.id === selectedModelA || !isModelEnabled(model)"
               >
-                {{ model.name }} · {{ modelStatusLabel(model) }}
+                {{ buildOptionLabel(model) }}
               </option>
             </select>
+
+            <p
+                v-if="getModelById(selectedModelB)?.disabledReason"
+                class="select-hint"
+            >
+              {{ getModelById(selectedModelB)?.disabledReason }}
+            </p>
           </div>
+        </div>
+
+        <div v-if="futureModels.length" class="future-models-note">
+          Future models: {{ futureModels.map((model) => model.name).join(', ') }}.
         </div>
 
         <div v-if="isLoading" class="panel-block panel-block--state">
@@ -481,7 +705,7 @@ watch(
 }
 
 .modal-card {
-  width: min(980px, 100%);
+  width: min(1080px, 100%);
   max-height: calc(100vh - 48px);
   overflow: auto;
   border-radius: 26px;
@@ -521,7 +745,7 @@ watch(
 
 .modal-card__subtitle {
   margin-top: 8px;
-  max-width: 520px;
+  max-width: 620px;
   color: #8ea5d2;
   font-size: 14px;
   line-height: 1.5;
@@ -542,8 +766,97 @@ watch(
   background: rgba(255,255,255,0.08);
 }
 
+.dataset-mode-card {
+  margin-bottom: 14px;
+  border: 1px solid rgba(120, 151, 235, 0.12);
+  border-radius: 18px;
+  background: rgba(255,255,255,0.035);
+  padding: 14px;
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: center;
+}
+
+.dataset-mode-card__label {
+  display: block;
+  margin-bottom: 5px;
+  color: #8ea5d2;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.dataset-mode-card strong {
+  color: #eef4ff;
+  font-size: 15px;
+}
+
+.dataset-mode-card p {
+  margin: 0;
+  max-width: 540px;
+  color: #8ea5d2;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.model-category-tabs {
+  margin-bottom: 14px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.category-tab {
+  text-align: left;
+  border: 1px solid rgba(120, 151, 235, 0.12);
+  border-radius: 16px;
+  background: rgba(255,255,255,0.035);
+  padding: 12px;
+  color: #dce8ff;
+  cursor: pointer;
+}
+
+.category-tab:hover:not(:disabled) {
+  border-color: rgba(121, 219, 255, 0.35);
+  background: rgba(255,255,255,0.055);
+}
+
+.category-tab--active {
+  border-color: rgba(121, 219, 255, 0.46);
+  background: rgba(121, 219, 255, 0.09);
+}
+
+.category-tab--disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.category-tab span {
+  display: block;
+  color: #eef4ff;
+  font-weight: 800;
+}
+
+.category-tab strong {
+  display: inline-block;
+  margin-top: 8px;
+  border-radius: 999px;
+  background: rgba(143, 230, 198, 0.12);
+  color: #9ee8ce;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.category-tab small {
+  display: block;
+  margin-top: 8px;
+  color: #8ea5d2;
+  line-height: 1.35;
+}
+
 .model-selector-grid {
-  margin-bottom: 18px;
+  margin-bottom: 14px;
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: end;
@@ -611,6 +924,19 @@ watch(
 .model-select:disabled {
   opacity: 0.65;
   cursor: wait;
+}
+
+.select-hint {
+  margin: 8px 0 0;
+  color: #ffb49f;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.future-models-note {
+  margin-bottom: 14px;
+  color: #8ea5d2;
+  font-size: 12px;
 }
 
 .model-vs {
@@ -879,6 +1205,11 @@ watch(
     padding-bottom: 0;
     text-align: center;
   }
+
+  .dataset-mode-card {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 }
 
 @media (max-width: 720px) {
@@ -888,6 +1219,10 @@ watch(
 
   .modal-card {
     padding: 16px;
+  }
+
+  .model-category-tabs {
+    grid-template-columns: 1fr;
   }
 
   .comparison-table__head--three,

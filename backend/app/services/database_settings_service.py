@@ -1,7 +1,24 @@
 from app.database.connection import fetch_one, execute_query
 
 
-VALID_MODEL_IDS = {"isolation_forest", "lof", "rnn"}
+VALID_MODEL_IDS = {
+    "isolation_forest",
+    "lof",
+    "one_class_svm",
+    "elliptic_envelope",
+    "dbscan",
+    "kmeans_distance",
+    "gaussian_mixture",
+    "pca_reconstruction",
+    "hbos",
+    "ecod",
+    "logistic_regression",
+    "decision_tree",
+    "random_forest",
+    "gradient_boosting",
+    "knn_classifier",
+    "rnn",
+}
 
 
 def get_setting(key: str, default_value: str) -> str:
@@ -30,7 +47,47 @@ def normalize_model_id(model_id: str) -> str:
         "iforest": "isolation_forest",
 
         "local_outlier_factor": "lof",
+        "localoutlierfactor": "lof",
         "lof": "lof",
+
+        "one_class_svm": "one_class_svm",
+        "oneclasssvm": "one_class_svm",
+        "ocsvm": "one_class_svm",
+
+        "elliptic_envelope": "elliptic_envelope",
+        "ellipticenvelope": "elliptic_envelope",
+
+        "dbscan": "dbscan",
+
+        "kmeans_distance": "kmeans_distance",
+        "k_means_distance": "kmeans_distance",
+        "kmeans": "kmeans_distance",
+
+        "gaussian_mixture": "gaussian_mixture",
+        "gaussian_mixture_model": "gaussian_mixture",
+        "gmm": "gaussian_mixture",
+
+        "pca_reconstruction": "pca_reconstruction",
+        "pca_reconstruction_error": "pca_reconstruction",
+        "pca": "pca_reconstruction",
+
+        "hbos": "hbos",
+        "ecod": "ecod",
+
+        "logistic_regression": "logistic_regression",
+        "logreg": "logistic_regression",
+
+        "decision_tree": "decision_tree",
+        "decisiontree": "decision_tree",
+
+        "random_forest": "random_forest",
+        "randomforest": "random_forest",
+
+        "gradient_boosting": "gradient_boosting",
+        "gradientboosting": "gradient_boosting",
+
+        "knn_classifier": "knn_classifier",
+        "knn": "knn_classifier",
 
         "recurrent_neural_network": "rnn",
         "rnn": "rnn",

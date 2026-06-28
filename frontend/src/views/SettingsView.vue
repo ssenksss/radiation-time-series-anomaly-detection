@@ -40,10 +40,16 @@ interface Summary {
   lastUpdated: string
 }
 
+type ModelCategory = 'unsupervised' | 'supervised' | 'future'
+
 interface AvailableModel {
   id: string
   name: string
   status: string
+  category?: ModelCategory
+  requiresLabels?: boolean
+  enabled?: boolean
+  disabledReason?: string | null
 }
 
 interface SelectedModels {
@@ -54,6 +60,10 @@ interface SelectedModels {
 interface ModelComparisonItem {
   id: string
   model: string
+  category?: ModelCategory
+  requiresLabels?: boolean
+  enabled?: boolean
+  disabledReason?: string | null
   score: number | null
   modelScore?: number | null
   accuracy: number | null
@@ -71,6 +81,7 @@ interface ModelComparisonItem {
 
 interface ModelInfo {
   currentModel: string
+  activeModelId?: string
   accuracy: number | null
   precision: number | null
   recall?: number | null
@@ -78,6 +89,8 @@ interface ModelInfo {
   fnr?: number | null
   modelScore?: number | null
   evaluationMode?: 'supervised' | 'unsupervised' | 'pending'
+  datasetHasLabels?: boolean
+  hasLabels?: boolean
   totalRecords?: number
   totalAnomalies?: number
   anomalyRate?: number | null
@@ -85,6 +98,11 @@ interface ModelInfo {
   availableModels?: AvailableModel[]
   selectedModels?: SelectedModels
   comparison?: ModelComparisonItem[]
+  groups?: {
+    unsupervised: string[]
+    supervised: string[]
+    future: string[]
+  }
 }
 
 const fallbackModels: AvailableModel[] = [
@@ -92,22 +110,47 @@ const fallbackModels: AvailableModel[] = [
     id: 'isolation_forest',
     name: 'Isolation Forest',
     status: 'implemented',
+    category: 'unsupervised',
+    requiresLabels: false,
+    enabled: true,
+    disabledReason: null,
   },
   {
     id: 'lof',
     name: 'Local Outlier Factor',
     status: 'implemented',
+    category: 'unsupervised',
+    requiresLabels: false,
+    enabled: true,
+    disabledReason: null,
   },
   {
     id: 'rnn',
     name: 'Recurrent Neural Network',
     status: 'pending',
+    category: 'future',
+    requiresLabels: false,
+    enabled: false,
+    disabledReason: 'Pending implementation',
   },
 ]
 
 const modelDescriptions: Record<string, string> = {
-  isolation_forest: 'Unsupervised anomaly detection model currently used as the primary model.',
-  lof: 'Local density-based anomaly detection model implemented for comparison with Isolation Forest.',
+  isolation_forest: 'Tree-based unsupervised anomaly detector for radiation measurements.',
+  lof: 'Density-based unsupervised model that detects locally unusual measurements.',
+  one_class_svm: 'Unsupervised boundary-based model that learns the normal data region.',
+  elliptic_envelope: 'Statistical anomaly detector based on covariance and elliptical distribution assumptions.',
+  dbscan: 'Clustering-based method where noise points are treated as anomalies.',
+  kmeans_distance: 'Clustering-distance model where distant points from cluster centers are treated as anomalies.',
+  gaussian_mixture: 'Probabilistic model that detects low-likelihood measurements.',
+  pca_reconstruction: 'Dimensionality-reduction model using reconstruction error as anomaly score.',
+  hbos: 'Histogram-based outlier detector suitable for fast anomaly scoring.',
+  ecod: 'Empirical cumulative distribution based outlier detector.',
+  logistic_regression: 'Supervised classifier available only when is_anomaly labels exist.',
+  decision_tree: 'Interpretable supervised classifier available only for labeled datasets.',
+  random_forest: 'Ensemble supervised classifier available only for labeled datasets.',
+  gradient_boosting: 'Boosting-based supervised classifier available only for labeled datasets.',
+  knn_classifier: 'Distance-based supervised classifier available only for labeled datasets.',
   rnn: 'Sequence-based neural network model planned for a future phase.',
 }
 
@@ -179,6 +222,22 @@ const availableModels = computed(() => {
   return fallbackModels
 })
 
+const datasetHasLabels = computed(() => {
+  return Boolean(modelInfo.value?.datasetHasLabels ?? modelInfo.value?.hasLabels)
+})
+
+const unsupervisedModels = computed(() => {
+  return availableModels.value.filter((model) => model.category === 'unsupervised')
+})
+
+const supervisedModels = computed(() => {
+  return availableModels.value.filter((model) => model.category === 'supervised')
+})
+
+const futureModels = computed(() => {
+  return availableModels.value.filter((model) => model.category === 'future')
+})
+
 const selectedModelOption = computed(() => {
   return availableModels.value.find((model) => model.id === selectedModel.value) ?? availableModels.value[0]
 })
@@ -192,11 +251,44 @@ const modelStatus = computed(() => {
 })
 
 const isSelectedModelImplemented = computed(() => {
-  return modelStatus.value === 'implemented'
+  return modelStatus.value === 'implemented' && selectedModelOption.value?.enabled !== false
 })
 
 const selectedModelMetrics = computed(() => {
-  return modelInfo.value?.comparison?.find((item) => item.id === selectedModel.value) ?? null
+  const directMatch = modelInfo.value?.comparison?.find((item) => item.id === selectedModel.value)
+
+  if (directMatch) {
+    return directMatch
+  }
+
+  if (
+      modelInfo.value?.activeModelId === selectedModel.value ||
+      modelInfo.value?.currentModel === modelName.value
+  ) {
+    return {
+      id: selectedModel.value,
+      model: modelInfo.value.currentModel,
+      category: selectedModelOption.value?.category,
+      requiresLabels: selectedModelOption.value?.requiresLabels,
+      enabled: selectedModelOption.value?.enabled,
+      disabledReason: selectedModelOption.value?.disabledReason,
+      score: modelInfo.value.accuracy,
+      modelScore: modelInfo.value.modelScore,
+      accuracy: modelInfo.value.accuracy,
+      precision: modelInfo.value.precision,
+      recall: modelInfo.value.recall ?? null,
+      fpr: modelInfo.value.fpr,
+      fnr: modelInfo.value.fnr ?? null,
+      evaluationMode: modelInfo.value.evaluationMode,
+      totalRecords: modelInfo.value.totalRecords,
+      totalAnomalies: modelInfo.value.totalAnomalies,
+      anomalyRate: modelInfo.value.anomalyRate,
+      active: true,
+      status: 'Active',
+    }
+  }
+
+  return null
 })
 
 const selectedEvaluationMode = computed(() => {
@@ -204,17 +296,17 @@ const selectedEvaluationMode = computed(() => {
 })
 
 const isUnsupervisedModel = computed(() => {
-  return selectedEvaluationMode.value === 'unsupervised'
+  return selectedModelMetrics.value?.category === 'unsupervised' || selectedEvaluationMode.value === 'unsupervised'
 })
 
 const isSupervisedModel = computed(() => {
-  return selectedEvaluationMode.value === 'supervised'
+  return selectedModelMetrics.value?.category === 'supervised' || selectedEvaluationMode.value === 'supervised'
 })
 
 const modelMetricTitle = computed(() => {
   if (metricsAreStale.value) return 'Metrics Need Update'
   if (!isSelectedModelImplemented.value) return 'Model Status'
-  if (isUnsupervisedModel.value) return 'Current Model Score'
+  if (isUnsupervisedModel.value && !datasetHasLabels.value) return 'Current Model Score'
 
   return 'Current Accuracy'
 })
@@ -223,7 +315,7 @@ const primaryMetricValue = computed(() => {
   if (metricsAreStale.value) return 'Save required'
   if (!isSelectedModelImplemented.value) return 'Pending'
 
-  if (isUnsupervisedModel.value) {
+  if (isUnsupervisedModel.value && !datasetHasLabels.value) {
     const score =
         selectedModelMetrics.value?.modelScore ??
         selectedModelMetrics.value?.score ??
@@ -347,35 +439,35 @@ const evaluationValue = computed(() => {
 })
 
 const metricCardOneLabel = computed(() => {
-  return isUnsupervisedModel.value ? 'Detected Anomalies' : 'Precision'
+  return isUnsupervisedModel.value && !datasetHasLabels.value ? 'Detected Anomalies' : 'Precision'
 })
 
 const metricCardOneValue = computed(() => {
-  return isUnsupervisedModel.value ? detectedAnomaliesValue.value : precisionValue.value
+  return isUnsupervisedModel.value && !datasetHasLabels.value ? detectedAnomaliesValue.value : precisionValue.value
 })
 
 const metricCardTwoLabel = computed(() => {
-  return isUnsupervisedModel.value ? 'Total Records' : 'Recall'
+  return isUnsupervisedModel.value && !datasetHasLabels.value ? 'Total Records' : 'Recall'
 })
 
 const metricCardTwoValue = computed(() => {
-  return isUnsupervisedModel.value ? totalRecordsValue.value : recallValue.value
+  return isUnsupervisedModel.value && !datasetHasLabels.value ? totalRecordsValue.value : recallValue.value
 })
 
 const metricCardThreeLabel = computed(() => {
-  return isUnsupervisedModel.value ? 'Anomaly Rate' : 'FPR'
+  return isUnsupervisedModel.value && !datasetHasLabels.value ? 'Anomaly Rate' : 'FPR'
 })
 
 const metricCardThreeValue = computed(() => {
-  return isUnsupervisedModel.value ? anomalyRateValue.value : fprValue.value
+  return isUnsupervisedModel.value && !datasetHasLabels.value ? anomalyRateValue.value : fprValue.value
 })
 
 const metricCardFourLabel = computed(() => {
-  return isUnsupervisedModel.value ? 'Evaluation' : 'FNR'
+  return isUnsupervisedModel.value && !datasetHasLabels.value ? 'Evaluation' : 'FNR'
 })
 
 const metricCardFourValue = computed(() => {
-  return isUnsupervisedModel.value ? evaluationValue.value : fnrValue.value
+  return isUnsupervisedModel.value && !datasetHasLabels.value ? evaluationValue.value : fnrValue.value
 })
 
 const unsavedThresholdMessage = computed(() => {
@@ -432,17 +524,19 @@ const chartRenderKey = computed(() => {
 })
 
 const getModelDescription = (model: AvailableModel) => {
-  return modelDescriptions[model.id] ?? 'Model configuration from backend.'
+  return model.disabledReason ?? modelDescriptions[model.id] ?? 'Model configuration from backend.'
 }
 
 const isModelImplemented = (model: AvailableModel) => {
-  return model.status === 'implemented'
+  return model.status === 'implemented' && model.enabled !== false
 }
 
 const getModelStatusLabel = (model: AvailableModel) => {
-  if (model.status === 'implemented') return 'Available'
+  if (model.status !== 'implemented') return 'Pending'
+  if (model.enabled === false) return 'Locked'
+  if (model.category === 'supervised') return 'Labeled only'
 
-  return 'Pending'
+  return 'Available'
 }
 
 const toggleModelDropdown = () => {
@@ -450,8 +544,23 @@ const toggleModelDropdown = () => {
 }
 
 const getSecondaryModelForComparison = (primaryModel: string) => {
-  if (primaryModel !== 'isolation_forest') return 'isolation_forest'
-  return 'lof'
+  const primary = availableModels.value.find((model) => model.id === primaryModel)
+
+  const sameCategoryModel = availableModels.value.find((model) => {
+    return model.id !== primaryModel &&
+        model.category === primary?.category &&
+        isModelImplemented(model)
+  })
+
+  if (sameCategoryModel) {
+    return sameCategoryModel.id
+  }
+
+  const fallbackModel = availableModels.value.find((model) => {
+    return model.id !== primaryModel && isModelImplemented(model)
+  })
+
+  return fallbackModel?.id ?? 'hbos'
 }
 
 const selectModel = async (model: AvailableModel) => {
@@ -630,7 +739,9 @@ const loadSettingsData = async () => {
     const loadedModelInfo = modelInfoResponse as ModelInfo
     modelInfo.value = loadedModelInfo
 
-    if (loadedModelInfo.selectedModels?.modelA) {
+    if (loadedModelInfo.activeModelId) {
+      selectedModel.value = loadedModelInfo.activeModelId
+    } else if (loadedModelInfo.selectedModels?.modelA) {
       selectedModel.value = loadedModelInfo.selectedModels.modelA
     }
 
@@ -705,33 +816,101 @@ onMounted(() => {
               </button>
 
               <div v-if="isModelDropdownOpen" class="model-dropdown">
-                <button
-                    v-for="model in availableModels"
-                    :key="model.id"
-                    class="model-option"
-                    :class="{
-                    'model-option--active': selectedModel === model.id,
-                    'model-option--disabled': !isModelImplemented(model),
-                  }"
-                    type="button"
-                    :disabled="!isModelImplemented(model)"
-                    @click="selectModel(model)"
-                >
-                  <div class="model-option__top">
-                    <strong>{{ model.name }}</strong>
-                    <span
-                        class="model-status"
-                        :class="{
-                        'model-status--available': isModelImplemented(model),
-                        'model-status--pending': !isModelImplemented(model),
-                      }"
-                    >
-                      {{ getModelStatusLabel(model) }}
-                    </span>
+                <div class="model-group">
+                  <div class="model-group-title">
+                    <span>Unsupervised Models</span>
+                    <small>Available for all datasets</small>
                   </div>
 
-                  <span>{{ getModelDescription(model) }}</span>
-                </button>
+                  <button
+                      v-for="model in unsupervisedModels"
+                      :key="model.id"
+                      class="model-option"
+                      :class="{
+                      'model-option--active': selectedModel === model.id,
+                      'model-option--disabled': !isModelImplemented(model),
+                    }"
+                      type="button"
+                      :disabled="!isModelImplemented(model)"
+                      @click="selectModel(model)"
+                  >
+                    <div class="model-option__top">
+                      <strong>{{ model.name }}</strong>
+                      <span
+                          class="model-status"
+                          :class="{
+                          'model-status--available': isModelImplemented(model),
+                          'model-status--pending': !isModelImplemented(model),
+                        }"
+                      >
+                        {{ getModelStatusLabel(model) }}
+                      </span>
+                    </div>
+
+                    <span>{{ getModelDescription(model) }}</span>
+                  </button>
+                </div>
+
+                <div class="model-group">
+                  <div class="model-group-title">
+                    <span>Supervised Models</span>
+                    <small>
+                      {{ datasetHasLabels ? 'Enabled because is_anomaly labels exist' : 'Locked — requires is_anomaly column' }}
+                    </small>
+                  </div>
+
+                  <button
+                      v-for="model in supervisedModels"
+                      :key="model.id"
+                      class="model-option"
+                      :class="{
+                      'model-option--active': selectedModel === model.id,
+                      'model-option--disabled': !isModelImplemented(model),
+                    }"
+                      type="button"
+                      :disabled="!isModelImplemented(model)"
+                      @click="selectModel(model)"
+                  >
+                    <div class="model-option__top">
+                      <strong>{{ model.name }}</strong>
+                      <span
+                          class="model-status"
+                          :class="{
+                          'model-status--available': isModelImplemented(model),
+                          'model-status--pending': !isModelImplemented(model),
+                        }"
+                      >
+                        {{ getModelStatusLabel(model) }}
+                      </span>
+                    </div>
+
+                    <span>{{ getModelDescription(model) }}</span>
+                  </button>
+                </div>
+
+                <div v-if="futureModels.length" class="model-group">
+                  <div class="model-group-title">
+                    <span>Future Models</span>
+                    <small>Planned extension</small>
+                  </div>
+
+                  <button
+                      v-for="model in futureModels"
+                      :key="model.id"
+                      class="model-option model-option--disabled"
+                      type="button"
+                      disabled
+                  >
+                    <div class="model-option__top">
+                      <strong>{{ model.name }}</strong>
+                      <span class="model-status model-status--pending">
+                        {{ getModelStatusLabel(model) }}
+                      </span>
+                    </div>
+
+                    <span>{{ getModelDescription(model) }}</span>
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -1100,12 +1279,46 @@ onMounted(() => {
   right: 0;
   top: calc(100% + 8px);
   z-index: 20;
-  width: 380px;
+  width: 430px;
+  max-height: 520px;
+  overflow: auto;
   padding: 8px;
   border-radius: 14px;
   border: 1px solid rgba(120, 151, 235, 0.14);
   background: rgba(9, 14, 28, 0.98);
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+}
+
+.model-group {
+  padding: 4px 0;
+}
+
+.model-group + .model-group {
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(120, 151, 235, 0.12);
+}
+
+.model-group-title {
+  margin: 4px 6px 8px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.model-group-title span {
+  color: #eef4ff;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.model-group-title small {
+  color: #7f92bd;
+  font-size: 11px;
+  text-align: right;
 }
 
 .model-option {
@@ -1145,7 +1358,7 @@ onMounted(() => {
 }
 
 .model-option--disabled {
-  opacity: 0.55;
+  opacity: 0.42;
   cursor: not-allowed;
 }
 
@@ -1461,7 +1674,7 @@ onMounted(() => {
   .model-dropdown {
     left: 0;
     right: auto;
-    width: min(380px, 100%);
+    width: min(430px, 100%);
   }
 }
 
