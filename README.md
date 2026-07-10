@@ -1,22 +1,26 @@
 # Radiation Monitoring Anomaly Detection System
 
-Bachelor’s thesis project: Radiation Level Monitoring System with Traditionally Trained Machine Learning Models and a Decision Support Framework Developed Using Generative Artificial Intelligence
+**Bachelor’s thesis project: Radiation Level Monitoring System with Traditionally Trained Machine Learning Models and a Decision Support Framework Developed Using Generative Artificial Intelligence**
 
 This repository contains a prototype web application for monitoring radiation measurements and detecting anomalous values in time-series data. The project was developed as part of my Bachelor’s thesis.
 
-The current version works with CSV and ZIP files. After a dataset is imported, the data is stored in PostgreSQL, cleaned, transformed into features and then used for model training and anomaly detection. The same structure could later be extended to work with measurements that arrive in real time.
+The current version works with CSV and ZIP files. After a dataset is imported, the data is stored in PostgreSQL, cleaned, transformed into features and then used for model training and anomaly detection. The same structure can later be extended to work with measurements that arrive in real time.
 
-The machine learning part of the project is based on traditional machine learning models. The models are trained with standard Python libraries and evaluated with standard classification metrics. 
+The machine learning part of the project is based on traditional supervised and unsupervised models. The models are trained with standard Python libraries and evaluated with standard classification metrics.
 
 This is an academic prototype and should not be treated as a certified radiation safety system.
 
+---
+
 ## Project idea
 
-The main idea of the application is simple:
+The main idea of the application is to load radiation measurement data, prepare it for analysis and use machine learning models to detect possible anomalies.
+
+The workflow is:
 
 1. load radiation measurement data
 2. store the original values in the database
-3. clean and prepare the data
+3. clean and standardize the data
 4. create features for machine learning models
 5. train traditional ML models
 6. detect anomalous measurements
@@ -28,7 +32,9 @@ The system supports two situations:
 - datasets that already contain an `is_anomaly` column
 - datasets that do not contain anomaly labels
 
-When `is_anomaly` exists, it is used as the original label for evaluation. When it does not exist, the system still performs anomaly detection, but it does not calculate accuracy, precision or recall because there is no ground-truth label to compare with. In that case, the application shows detected anomalies, anomaly rate and anomaly score statistics.
+When `is_anomaly` exists, it is used as the original label for model evaluation. When it does not exist, the system still performs anomaly detection, but it does not calculate accuracy, precision or recall because there is no ground-truth label to compare with. In that case, the application shows detected anomalies, anomaly rate and anomaly score statistics.
+
+---
 
 ## Data flow
 
@@ -36,21 +42,23 @@ The project follows an ELT-style flow. Data is first loaded into the database an
 
 ```text
 CSV / ZIP file
-    ↓
+      ↓
 raw_measurements
-    ↓
+      ↓
 clean_measurements
-    ↓
+      ↓
 feature_measurements
-    ↓
+      ↓
 anomaly_results
-    ↓
+      ↓
 model_metrics
-    ↓
+      ↓
 dashboard and reports
 ```
 
 This separation makes it easier to keep the original imported data, cleaned data, features, predictions and metrics in separate layers.
+
+---
 
 ## Main features
 
@@ -67,9 +75,11 @@ This separation makes it easier to keep the original imported data, cleaned data
 - traditional supervised and unsupervised machine learning models
 - generated evaluation tables and plots
 
+---
+
 ## Technology stack
 
-Frontend:
+### Frontend
 
 - Vue 3
 - TypeScript
@@ -77,14 +87,14 @@ Frontend:
 - Chart.js
 - Pinia
 
-Backend:
+### Backend
 
 - Python
 - FastAPI
 - Uvicorn
 - PostgreSQL
 
-Machine learning and data processing:
+### Machine learning and data processing
 
 - pandas
 - NumPy
@@ -92,31 +102,35 @@ Machine learning and data processing:
 - PyOD models where needed
 - StandardScaler
 
-Database and infrastructure:
+### Database and infrastructure
 
 - PostgreSQL
 - Docker Compose
 - SQL views
+
+---
 
 ## Database tables
 
 The main database tables are:
 
 | Table | Purpose |
-| --- | --- |
-| `datasets` | information about imported datasets |
-| `raw_measurements` | original imported values |
-| `clean_measurements` | cleaned and standardized measurements |
-| `feature_measurements` | features used for model training |
-| `anomaly_results` | predictions, anomaly scores and status values |
-| `model_metrics` | calculated model metrics |
-| `app_settings` | active dataset, model and threshold settings |
+|---|---|
+| `datasets` | stores information about imported datasets |
+| `raw_measurements` | stores the original uploaded measurement rows |
+| `clean_measurements` | stores cleaned and standardized measurements |
+| `feature_measurements` | stores features prepared for machine learning |
+| `anomaly_results` | stores model predictions and anomaly scores |
+| `model_metrics` | stores evaluation metrics for each model |
+| `app_settings` | stores active dataset, selected model and threshold settings |
 
 Analytical SQL views are stored in:
 
 ```text
 database/analytics_views.sql
 ```
+
+---
 
 ## Machine learning workflow
 
@@ -135,11 +149,13 @@ The ML workflow is organized in the following steps:
 Because the data represents a time series, the train/test split is chronological instead of random.
 
 ```text
-first 70% of records  -> training data
-last 30% of records   -> test data
+first 70% of records -> training data
+last 30% of records  -> test data
 ```
 
 This is used to avoid training the model on later measurements and then testing it on earlier ones.
+
+---
 
 ## Unsupervised models
 
@@ -148,18 +164,20 @@ Unsupervised models are important because real radiation data will often arrive 
 Implemented unsupervised models:
 
 | Model | Reason for use |
-| --- | --- |
-| Isolation Forest | standard anomaly detection model based on isolating unusual points |
-| Local Outlier Factor | detects points with lower local density |
-| One-Class SVM | learns the boundary of normal behavior |
-| DBSCAN | clustering baseline where noise points are treated as anomalies |
-| K-Means Distance | detects points far from the nearest cluster center |
-| Gaussian Mixture Model | uses low probability density as anomaly indication |
+|---|---|
+| Isolation Forest | standard anomaly detection model based on isolating unusual records |
+| Local Outlier Factor | detects records that differ from their local neighbourhood |
+| One-Class SVM | learns the boundary of normal measurements |
+| DBSCAN | clustering baseline that can mark low-density points as noise |
+| K-Means Distance | uses distance from the nearest cluster center as anomaly score |
+| Gaussian Mixture Model | uses probability under learned distributions |
 | PCA Reconstruction Error | uses reconstruction error as anomaly score |
-| HBOS | histogram-based outlier scoring |
-| ECOD | distribution-based outlier detection |
+| HBOS | histogram-based model for detecting unusual feature values |
+| ECOD | distribution-based model for outlier detection |
 
-When labels exist, these models are still trained without using the labels. The labels are used only after prediction, so that the result can be evaluated.
+When labels exist, these models are still trained without using the labels. The labels are used only after prediction, so the results can be evaluated.
+
+---
 
 ## Supervised models
 
@@ -168,24 +186,26 @@ Supervised models are used only when the dataset contains an original `is_anomal
 Implemented supervised models:
 
 | Model | Reason for use |
-| --- | --- |
-| Logistic Regression | simple linear baseline |
-| Decision Tree | interpretable rule-based model |
-| Random Forest | ensemble of decision trees |
-| Gradient Boosting | boosting-based classifier |
-| KNN Classifier | distance-based classifier |
+|---|---|
+| Logistic Regression | simple baseline classifier |
+| Decision Tree | interpretable model that is easy to explain |
+| Random Forest | ensemble model used as a stronger classification baseline |
+| Gradient Boosting | ensemble model that improves predictions step by step |
+| KNN Classifier | distance-based classifier used for comparison |
 
 These models are trained on labeled data and evaluated on the test part of the dataset.
+
+---
 
 ## Evaluation logic
 
 The project separates model type and evaluation mode.
 
 | Mode | Meaning |
-| --- | --- |
-| `labeled` | unsupervised model trained without labels, but evaluated using available labels |
-| `supervised` | supervised model trained and evaluated using labels |
-| `unsupervised` | dataset has no labels, so only anomaly statistics are shown |
+|---|---|
+| `labeled` | unsupervised model evaluated on a dataset that contains original anomaly labels |
+| `supervised` | supervised model trained and evaluated using original labels |
+| `unlabeled` | dataset has no original labels, so only anomaly statistics are shown |
 
 For labeled and supervised evaluation, the following metrics are calculated:
 
@@ -203,6 +223,8 @@ For labeled and supervised evaluation, the following metrics are calculated:
 - anomaly score statistics
 
 Accuracy is not used as the only important metric because anomalies are rare compared to normal measurements. For that reason, precision, recall, F1-score and PR-AUC are especially important.
+
+---
 
 ## Generated reports and plots
 
@@ -230,11 +252,11 @@ The generated outputs include:
 
 These files are used as support for the thesis chapter about model evaluation.
 
+---
+
 ## Decision support framework
 
-The decision support part of the application is built around model outputs and stored metrics. It does not replace the ML models and it does not change calculated results.
-
-It helps organize and present:
+The decision support part of the application is built around model outputs and stored metrics. It helps organize and present:
 
 - current radiation status
 - detected anomalies
@@ -244,6 +266,8 @@ It helps organize and present:
 - metric interpretation
 - dashboard summaries
 - report-ready results
+
+---
 
 ## Project structure
 
@@ -284,12 +308,20 @@ docs/
   REQUIREMENTS_MAPPING.md
 ```
 
+---
+
 ## Running the project
 
 Start PostgreSQL:
 
 ```bash
 docker compose up -d
+```
+
+Create a local environment file:
+
+```bash
+cp .env.example .env
 ```
 
 Start the backend:
@@ -310,7 +342,13 @@ npm install
 npm run dev
 ```
 
-Run the ML pipeline from the project root when the database is running.
+Run the ML pipeline from the project root when the database is running:
+
+```bash
+python ml/scripts/run_ml_pipeline.py
+```
+
+---
 
 ## Notes
 
