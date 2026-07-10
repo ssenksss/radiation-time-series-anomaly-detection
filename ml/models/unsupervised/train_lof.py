@@ -1,7 +1,7 @@
 """
 local outlier factor anomaly detection model
 
-this model compares local density around each record with the density of its neighbors
+this model compares the local density of each record with the density of its neighbors
 records in much sparser areas are treated as possible anomalies
 """
 
@@ -46,6 +46,8 @@ def train_lof(dataframe: pd.DataFrame, threshold: float) -> Tuple[pd.DataFrame, 
     train_dataframe, test_dataframe = chronological_train_test_split(model_dataframe)
 
     contamination = calculate_contamination_from_threshold(train_dataframe, threshold)
+
+    # number of neighbors is adjusted to dataset size
     n_neighbors = min(35, max(5, len(train_dataframe) // 50))
     n_neighbors = min(n_neighbors, max(2, len(train_dataframe) - 1))
 
@@ -56,6 +58,7 @@ def train_lof(dataframe: pd.DataFrame, threshold: float) -> Tuple[pd.DataFrame, 
     train_features = scaler.fit_transform(train_dataframe[FEATURE_COLUMNS])
     all_features = scaler.transform(model_dataframe[FEATURE_COLUMNS])
 
+    # lof compares local density with neighboring records
     model = LocalOutlierFactor(
         n_neighbors=n_neighbors,
         contamination=contamination,
@@ -67,6 +70,8 @@ def train_lof(dataframe: pd.DataFrame, threshold: float) -> Tuple[pd.DataFrame, 
 
     prediction_started_at = time.time()
     predictions = model.predict(all_features)
+
+    # negative decision score is used so larger score means more anomalous
     anomaly_scores = -model.decision_function(all_features)
     prediction_time_seconds = time.time() - prediction_started_at
 

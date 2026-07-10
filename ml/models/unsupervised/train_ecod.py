@@ -1,8 +1,8 @@
 """
 ecod anomaly detection model
 
-this model uses empirical distributions of feature values
-records in extreme distribution tails get higher anomaly scores
+this model checks how extreme a record is in the feature distributions
+records that fall in distribution tails receive higher anomaly scores
 """
 
 from pathlib import Path
@@ -48,12 +48,14 @@ def train_ecod(dataframe: pd.DataFrame, threshold: float) -> Tuple[pd.DataFrame,
 
     contamination = calculate_contamination_from_threshold(train_dataframe, threshold)
 
+    # contamination defines expected share of anomalous rows
     training_started_at = time.time()
 
     scaler = StandardScaler()
     train_features = scaler.fit_transform(train_dataframe[FEATURE_COLUMNS])
     all_features = scaler.transform(model_dataframe[FEATURE_COLUMNS])
 
+    # ecod works on distribution tails and does not need labels
     model = ECOD(
         contamination=contamination,
     )
@@ -63,6 +65,8 @@ def train_ecod(dataframe: pd.DataFrame, threshold: float) -> Tuple[pd.DataFrame,
 
     prediction_started_at = time.time()
     predicted_anomaly = model.predict(all_features).astype(bool)
+
+    # higher decision scores mean more unusual records
     anomaly_scores = normalize_scores(model.decision_function(all_features))
     prediction_time_seconds = time.time() - prediction_started_at
 

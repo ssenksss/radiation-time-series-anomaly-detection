@@ -1,8 +1,8 @@
 """
 logistic regression classification model
 
-this supervised model uses labels during training
-it is trained on the first part of the dataset and tested on later records
+this model is used as a simple linear supervised baseline
+it estimates the probability that a measurement belongs to the anomaly class
 """
 
 from pathlib import Path
@@ -29,6 +29,7 @@ REQUIRES_SCALING = True
 
 
 def build_model():
+    # keep model parameters simple and reproducible
     return LogisticRegression(
         max_iter=1000,
         class_weight="balanced",
@@ -44,6 +45,7 @@ def train_supervised_model(
 ) -> Dict[str, object]:
     model = build_model()
 
+    # use the same feature set for train, test and dashboard predictions
     x_train = train_dataframe[list(feature_columns)]
     y_train = train_dataframe["original_label"].astype(int).to_numpy()
     x_test = test_dataframe[list(feature_columns)]
@@ -61,6 +63,8 @@ def train_supervised_model(
         x_full_model = x_full
 
     training_started_at = time.time()
+
+    # train the classifier using original anomaly labels
     model.fit(x_train_model, y_train)
     training_time_seconds = round(time.time() - training_started_at, 6)
 
@@ -70,6 +74,7 @@ def train_supervised_model(
     test_predictions = model.predict(x_test_model).astype(int)
     full_predictions = model.predict(x_full_model).astype(int)
 
+    # probability or decision score is used as anomaly score
     if hasattr(model, "predict_proba"):
         test_scores = model.predict_proba(x_test_model)[:, 1]
         full_scores = model.predict_proba(x_full_model)[:, 1]

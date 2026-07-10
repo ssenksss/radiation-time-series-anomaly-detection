@@ -1,8 +1,8 @@
 """
 hbos anomaly detection model
 
-this model builds histograms for feature values
-rare values in the histograms get higher anomaly scores
+this model builds histograms for each feature and checks how rare each value is
+records with rare feature values receive higher anomaly scores
 """
 
 from pathlib import Path
@@ -48,12 +48,14 @@ def train_hbos(dataframe: pd.DataFrame, threshold: float) -> Tuple[pd.DataFrame,
 
     contamination = calculate_contamination_from_threshold(train_dataframe, threshold)
 
+    # contamination defines expected share of anomalous rows
     training_started_at = time.time()
 
     scaler = StandardScaler()
     train_features = scaler.fit_transform(train_dataframe[FEATURE_COLUMNS])
     all_features = scaler.transform(model_dataframe[FEATURE_COLUMNS])
 
+    # hbos scores records by checking rare histogram bins
     model = HBOS(
         contamination=contamination,
         n_bins=20,
@@ -64,6 +66,8 @@ def train_hbos(dataframe: pd.DataFrame, threshold: float) -> Tuple[pd.DataFrame,
 
     prediction_started_at = time.time()
     predicted_anomaly = model.predict(all_features).astype(bool)
+
+    # normalize scores for easier comparison in reports
     anomaly_scores = normalize_scores(model.decision_function(all_features))
     prediction_time_seconds = time.time() - prediction_started_at
 

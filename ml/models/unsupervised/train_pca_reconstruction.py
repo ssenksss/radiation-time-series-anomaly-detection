@@ -1,7 +1,7 @@
 """
 pca reconstruction anomaly detection model
 
-this model learns a lower dimensional representation of normal measurements
+this model learns a compressed representation of normal measurements
 records with larger reconstruction error are treated as possible anomalies
 """
 
@@ -50,11 +50,13 @@ def train_pca_reconstruction(dataframe: pd.DataFrame, threshold: float) -> Tuple
 
     contamination = calculate_contamination_from_threshold(train_dataframe, threshold)
 
+    # contamination decides how many largest reconstruction errors are marked
     training_started_at = time.time()
 
     scaler = StandardScaler()
     train_features = scaler.fit_transform(train_dataframe[FEATURE_COLUMNS])
     all_features = scaler.transform(model_dataframe[FEATURE_COLUMNS])
+    # use a small number of components to keep only the main pattern
     n_components = min(3, train_features.shape[1] - 1)
 
     model = PCA(
@@ -68,6 +70,7 @@ def train_pca_reconstruction(dataframe: pd.DataFrame, threshold: float) -> Tuple
     prediction_started_at = time.time()
     transformed = model.transform(all_features)
     reconstructed = model.inverse_transform(transformed)
+    # reconstruction error is used as anomaly score
     anomaly_scores = np.mean((all_features - reconstructed) ** 2, axis=1)
     predicted_anomaly = build_top_score_predictions(anomaly_scores, contamination)
     prediction_time_seconds = time.time() - prediction_started_at

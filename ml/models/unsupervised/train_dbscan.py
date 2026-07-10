@@ -1,7 +1,7 @@
 """
 dbscan clustering anomaly detection model
 
-dbscan groups dense regions of measurements
+this model groups records that are close to each other in dense areas
 records marked as noise are treated as possible anomalies
 """
 
@@ -52,12 +52,15 @@ def train_dbscan(dataframe: pd.DataFrame, threshold: float) -> Tuple[pd.DataFram
     scaler.fit(train_dataframe[FEATURE_COLUMNS])
     all_features = scaler.transform(model_dataframe[FEATURE_COLUMNS])
 
+    # eps and min_samples control how dense a group has to be
     model = DBSCAN(
         eps=1.8,
         min_samples=10,
         n_jobs=-1,
     )
     labels = model.fit_predict(all_features)
+
+    # dbscan labels noise points with -1
 
     training_time_seconds = time.time() - training_started_at
 
@@ -67,6 +70,7 @@ def train_dbscan(dataframe: pd.DataFrame, threshold: float) -> Tuple[pd.DataFram
     center = np.mean(all_features, axis=0)
     anomaly_scores = np.linalg.norm(all_features - center, axis=1)
 
+    # fallback keeps the model usable even when no noise points are found
     if not predicted_anomaly.any():
         anomaly_count = max(1, int(len(model_dataframe) * 0.03))
         score_threshold = np.partition(anomaly_scores, -anomaly_count)[-anomaly_count]

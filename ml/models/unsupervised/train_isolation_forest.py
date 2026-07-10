@@ -1,9 +1,8 @@
 """
 isolation forest anomaly detection model
 
-this model is unsupervised, so anomaly labels are not used during training
-the model learns patterns from radiation features and marks unusual records
-as possible anomalies
+this model isolates unusual records by using random splits in the feature space
+records that are isolated quickly are treated as more anomalous
 """
 
 from pathlib import Path
@@ -51,6 +50,7 @@ def train_isolation_forest(dataframe: pd.DataFrame, threshold: float) -> Tuple[p
     # estimate expected anomalies only from the training part
     contamination = calculate_contamination_from_threshold(train_dataframe, threshold)
 
+    # contamination defines expected share of anomalous rows
     training_started_at = time.time()
 
     # fit scaler only on train data
@@ -59,6 +59,7 @@ def train_isolation_forest(dataframe: pd.DataFrame, threshold: float) -> Tuple[p
     all_features = scaler.transform(model_dataframe[FEATURE_COLUMNS])
 
     # train isolation forest without using labels
+    # isolation forest uses random splits to isolate unusual records
     model = IsolationForest(
         n_estimators=200,
         contamination=contamination,
@@ -75,6 +76,8 @@ def train_isolation_forest(dataframe: pd.DataFrame, threshold: float) -> Tuple[p
 
     # higher isolation forest decision values mean more normal records
     raw_scores = model.decision_function(all_features)
+
+    # decision_function is inverted so larger score means more anomalous
     anomaly_scores = -raw_scores
 
     prediction_time_seconds = time.time() - prediction_started_at

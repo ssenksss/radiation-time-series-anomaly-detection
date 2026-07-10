@@ -1,7 +1,7 @@
 """
 one-class svm anomaly detection model
 
-this model learns the boundary of normal measurements without using labels
+this model learns a boundary around the normal measurement pattern
 records outside that boundary are marked as possible anomalies
 """
 
@@ -47,12 +47,14 @@ def train_one_class_svm(dataframe: pd.DataFrame, threshold: float) -> Tuple[pd.D
 
     contamination = calculate_contamination_from_threshold(train_dataframe, threshold)
 
+    # contamination is used as nu, the expected share of outliers
     training_started_at = time.time()
 
     scaler = StandardScaler()
     train_features = scaler.fit_transform(train_dataframe[FEATURE_COLUMNS])
     all_features = scaler.transform(model_dataframe[FEATURE_COLUMNS])
 
+    # one-class svm learns the boundary of normal measurements
     model = OneClassSVM(
         kernel="rbf",
         gamma="scale",
@@ -64,6 +66,8 @@ def train_one_class_svm(dataframe: pd.DataFrame, threshold: float) -> Tuple[pd.D
 
     prediction_started_at = time.time()
     predictions = model.predict(all_features)
+
+    # records outside the boundary are returned as -1
     anomaly_scores = -model.decision_function(all_features)
     prediction_time_seconds = time.time() - prediction_started_at
 

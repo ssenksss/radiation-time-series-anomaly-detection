@@ -1,8 +1,8 @@
 """
 k-means distance anomaly detection model
 
-this model groups measurements into clusters
-records far from the nearest cluster center are treated as possible anomalies
+this model groups records into clusters and measures distance from cluster centers
+records far from their nearest center are treated as possible anomalies
 """
 
 from pathlib import Path
@@ -57,6 +57,7 @@ def train_kmeans_distance(dataframe: pd.DataFrame, threshold: float) -> Tuple[pd
     train_features = scaler.fit_transform(train_dataframe[FEATURE_COLUMNS])
     all_features = scaler.transform(model_dataframe[FEATURE_COLUMNS])
 
+    # k-means learns typical groups of measurements
     model = KMeans(
         n_clusters=n_clusters,
         n_init=10,
@@ -68,6 +69,8 @@ def train_kmeans_distance(dataframe: pd.DataFrame, threshold: float) -> Tuple[pd
 
     prediction_started_at = time.time()
     cluster_labels = model.predict(all_features)
+
+    # distance from nearest cluster center is used as anomaly score
     distances = np.linalg.norm(all_features - model.cluster_centers_[cluster_labels], axis=1)
     predicted_anomaly = build_top_score_predictions(distances, contamination)
     prediction_time_seconds = time.time() - prediction_started_at

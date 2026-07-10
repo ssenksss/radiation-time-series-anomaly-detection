@@ -1,8 +1,8 @@
 """
 gaussian mixture anomaly detection model
 
-this model estimates the probability distribution of the measurements
-records with low likelihood are treated as possible anomalies
+this model represents normal data as a mixture of gaussian distributions
+records with low likelihood under the learned distribution are treated as anomalies
 """
 
 from pathlib import Path
@@ -57,6 +57,7 @@ def train_gaussian_mixture(dataframe: pd.DataFrame, threshold: float) -> Tuple[p
     train_features = scaler.fit_transform(train_dataframe[FEATURE_COLUMNS])
     all_features = scaler.transform(model_dataframe[FEATURE_COLUMNS])
 
+    # gaussian components approximate the normal data distribution
     model = GaussianMixture(
         n_components=n_components,
         covariance_type="full",
@@ -67,6 +68,7 @@ def train_gaussian_mixture(dataframe: pd.DataFrame, threshold: float) -> Tuple[p
     training_time_seconds = time.time() - training_started_at
 
     prediction_started_at = time.time()
+    # lower likelihood gives a higher anomaly score
     negative_log_likelihood = -model.score_samples(all_features)
     anomaly_scores = normalize_scores(negative_log_likelihood)
     predicted_anomaly = build_top_score_predictions(anomaly_scores, contamination)
