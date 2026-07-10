@@ -10,7 +10,6 @@ The machine learning part of the project is based on traditional supervised and 
 
 This is an academic prototype and should not be treated as a certified radiation safety system.
 
----
 
 ## Project idea
 
@@ -34,7 +33,6 @@ The system supports two situations:
 
 When `is_anomaly` exists, it is used as the original label for model evaluation. When it does not exist, the system still performs anomaly detection, but it does not calculate accuracy, precision or recall because there is no ground-truth label to compare with. In that case, the application shows detected anomalies, anomaly rate and anomaly score statistics.
 
----
 
 ## Data flow
 
@@ -58,7 +56,6 @@ dashboard and reports
 
 This separation makes it easier to keep the original imported data, cleaned data, features, predictions and metrics in separate layers.
 
----
 
 ## Main features
 
@@ -75,7 +72,6 @@ This separation makes it easier to keep the original imported data, cleaned data
 - traditional supervised and unsupervised machine learning models
 - generated evaluation tables and plots
 
----
 
 ## Technology stack
 
@@ -108,7 +104,6 @@ This separation makes it easier to keep the original imported data, cleaned data
 - Docker Compose
 - SQL views
 
----
 
 ## Database tables
 
@@ -130,7 +125,6 @@ Analytical SQL views are stored in:
 database/analytics_views.sql
 ```
 
----
 
 ## Machine learning workflow
 
@@ -155,7 +149,6 @@ last 30% of records  -> test data
 
 This is used to avoid training the model on later measurements and then testing it on earlier ones.
 
----
 
 ## Unsupervised models
 
@@ -177,7 +170,6 @@ Implemented unsupervised models:
 
 When labels exist, these models are still trained without using the labels. The labels are used only after prediction, so the results can be evaluated.
 
----
 
 ## Supervised models
 
@@ -195,7 +187,6 @@ Implemented supervised models:
 
 These models are trained on labeled data and evaluated on the test part of the dataset.
 
----
 
 ## Evaluation logic
 
@@ -224,7 +215,6 @@ For labeled and supervised evaluation, the following metrics are calculated:
 
 Accuracy is not used as the only important metric because anomalies are rare compared to normal measurements. For that reason, precision, recall, F1-score and PR-AUC are especially important.
 
----
 
 ## Generated reports and plots
 
@@ -252,7 +242,6 @@ The generated outputs include:
 
 These files are used as support for the thesis chapter about model evaluation.
 
----
 
 ## Decision support framework
 
@@ -267,7 +256,6 @@ The decision support part of the application is built around model outputs and s
 - dashboard summaries
 - report-ready results
 
----
 
 ## Project structure
 
@@ -308,7 +296,6 @@ docs/
   REQUIREMENTS_MAPPING.md
 ```
 
----
 
 ## Running the project
 
@@ -348,7 +335,6 @@ Run the ML pipeline from the project root when the database is running:
 python ml/scripts/run_ml_pipeline.py
 ```
 
----
 
 ## Notes
 
