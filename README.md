@@ -6,7 +6,7 @@ This repository contains a prototype web application for monitoring radiation me
 
 The current version works with CSV and ZIP files. After a dataset is imported, the data is stored in PostgreSQL, cleaned, transformed into features and then used for model training and anomaly detection. The same structure could later be extended to work with measurements that arrive in real time.
 
-The machine learning part of the project is based on traditional machine learning models. The models are trained with standard Python libraries and evaluated with standard classification metrics. Generative AI was not used for model training, prediction or metric calculation. In this project, it is treated only as support for the decision-support and explanation part of the application.
+The machine learning part of the project is based on traditional machine learning models. The models are trained with standard Python libraries and evaluated with standard classification metrics. 
 
 This is an academic prototype and should not be treated as a certified radiation safety system.
 
