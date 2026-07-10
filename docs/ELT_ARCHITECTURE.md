@@ -1,136 +1,227 @@
-# ELT Architecture and Analytical Storage Layer
+# ELT Architecture
 
-This project implements an analytical data processing pipeline for radiation monitoring and anomaly detection.
+This document explains the data flow used in the radiation monitoring project.
 
-The system follows an ELT approach:
-
-1. External data is extracted from CSV or ZIP files.
-2. Raw data is loaded into PostgreSQL.
-3. Data is cleaned and standardized inside the project pipeline.
-4. Time-series features are created for machine learning.
-5. ML models detect anomalies.
-6. Results and metrics are stored back into PostgreSQL.
-7. The dashboard visualizes measurements, anomalies, model metrics and analytical summaries.
-
-## Architecture Overview
+The project uses an ELT approach. This means that data is first loaded into the database and then transformed through later processing steps.
 
 ```text
-External CSV / ZIP data source
-        ↓
-Raw layer: raw_measurements
-        ↓
-Clean layer: clean_measurements
-        ↓
-Feature layer: feature_measurements
-        ↓
-ML results layer: anomaly_results
-        ↓
-Metrics layer: model_metrics
-        ↓
-Analytics views
-        ↓
-Vue dashboard visualization
+Extract  ->  Load  ->  Transform
 ```
 
-## External Data Source
+In this project, the data comes from CSV or ZIP files. After upload, the original records are saved in PostgreSQL. Cleaning, feature creation, model prediction and metric calculation are then performed on top of the stored data.
 
-The system supports radiation measurement data imported from external CSV or ZIP files.
+## Why ELT is used
 
-The upload and ingestion process stores the original extracted data before transformation. This allows the project to preserve the original source values and separate extraction/loading from transformation.
+ELT is useful here because I want to keep the original imported data and not lose it during cleaning. If something is wrong in a later step, the raw values can still be checked again.
 
-## PostgreSQL as Analytical Storage
+It also makes the project easier to explain because each stage has its own table:
 
-PostgreSQL is used as the central analytical storage layer.
+- raw imported data
+- cleaned data
+- feature data
+- model predictions
+- model metrics
 
-Although this is not a cloud-based object storage data lake, the project follows a data lake-like layered architecture:
+## Data layers
 
-* raw data is stored first,
-* cleaned data is stored separately,
-* engineered features are stored in a dedicated layer,
-* machine learning results are stored in another layer,
-* analytical views are created for reporting and dashboard analysis.
+### 1. Raw layer
 
-This makes the data flow clear, reproducible and suitable for analytical processing.
+Table:
 
-## Data Layers
+```text
+raw_measurements
+```
 
-| Layer            | Table                  | Purpose                                                                           |
-| ---------------- | ---------------------- | --------------------------------------------------------------------------------- |
-| Raw layer        | `raw_measurements`     | Stores original imported records from external files.                             |
-| Clean layer      | `clean_measurements`   | Stores cleaned and standardized radiation measurements.                           |
-| Feature layer    | `feature_measurements` | Stores engineered time-series features used by ML models.                         |
-| ML results layer | `anomaly_results`      | Stores anomaly predictions, anomaly scores and status labels.                     |
-| Metrics layer    | `model_metrics`        | Stores model evaluation metrics such as accuracy, precision, recall, FPR and FNR. |
+This table stores the values as they were imported from the uploaded file. The goal of this layer is to preserve the original input.
 
-## ELT Process
+Typical values stored here are:
 
-The project uses ELT instead of traditional ETL.
+- timestamp
+- radiation level
+- sensor id
+- location
+- temperature
+- humidity
+- original anomaly label if it exists
 
-In this approach, data is first loaded into the database in its raw form. Transformations are then performed through Python scripts and stored in separate PostgreSQL tables.
+### 2. Clean layer
 
-The main ELT steps are:
+Table:
 
-| Step                 | Script / Component                              | Description                                                                          |
-| -------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------ |
-| Extract              | CSV / ZIP upload                                | External radiation data is imported into the project.                                |
-| Load                 | `ingest_data.py`                                | Raw records are loaded into `raw_measurements`.                                      |
-| Transform - cleaning | `data_preprocessing.py`                         | Invalid values are removed, missing values are handled and columns are standardized. |
-| Transform - features | `create_features.py`                            | Time-series features are created for anomaly detection.                              |
-| ML processing        | `run_ml_pipeline.py`                            | Anomaly detection models are applied.                                                |
-| Evaluation           | `evaluate_model.py`, `train_test_evaluation.py` | Model performance is calculated and saved.                                           |
-| Reporting            | `generate_report.py`                            | A markdown ML report is generated.                                                   |
+```text
+clean_measurements
+```
 
-## Analytics / DWH Views
+This layer stores cleaned and standardized measurements.
 
-The project also includes analytical SQL views that represent the reporting layer of the system.
+Cleaning includes:
 
-The views are defined in:
+- removing invalid timestamps
+- removing invalid radiation values
+- filling missing temperature and humidity values with median values
+- normalizing sensor and location values
+- keeping original labels when they exist
+
+The important idea is that cleaning prepares the data, but it does not change the meaning of the original measurements.
+
+### 3. Feature layer
+
+Table:
+
+```text
+feature_measurements
+```
+
+This layer stores the values used by the machine learning models.
+
+The feature set includes:
+
+- radiation level
+- temperature
+- humidity
+- hour of day
+- day of week
+- rolling mean
+- rolling standard deviation
+- radiation difference
+
+The rolling features are added because radiation data is time-series based, so the value of one measurement is not completely independent from previous measurements.
+
+### 4. Model result layer
+
+Table:
+
+```text
+anomaly_results
+```
+
+This table stores the output of each model.
+
+It includes:
+
+- model name
+- predicted anomaly value
+- anomaly score
+- status label
+- threshold value
+- measurement reference
+
+This makes it possible to compare different models on the same dataset.
+
+### 5. Metrics layer
+
+Table:
+
+```text
+model_metrics
+```
+
+This table stores model evaluation results.
+
+When labels are available, the table stores metrics such as:
+
+- accuracy
+- precision
+- recall
+- F1-score
+- ROC-AUC
+- PR-AUC
+- FPR
+- FNR
+- TP, TN, FP and FN
+
+When labels are not available, the system stores anomaly statistics instead of supervised metrics.
+
+## Full data flow
+
+```text
+Uploaded CSV / ZIP file
+        ↓
+raw_measurements
+        ↓
+clean_measurements
+        ↓
+feature_measurements
+        ↓
+anomaly_results
+        ↓
+model_metrics
+        ↓
+SQL views
+        ↓
+Dashboard and reports
+```
+
+## Analytical views
+
+The project also contains SQL views for easier reporting.
+
+The views are stored in:
 
 ```text
 database/analytics_views.sql
 ```
 
-Created views:
+Main views:
 
-| View                          | Purpose                                                |
-| ----------------------------- | ------------------------------------------------------ |
-| `vw_daily_radiation_summary`  | Daily aggregation of radiation levels and anomalies.   |
-| `vw_hourly_radiation_summary` | Hourly aggregation of radiation levels and anomalies.  |
-| `vw_location_anomaly_summary` | Aggregation by location and sensor.                    |
-| `vw_model_performance`        | Latest model performance metrics.                      |
-| `vw_latest_anomalies`         | Latest detected anomalies for dashboard and reporting. |
+| View | Purpose |
+| --- | --- |
+| `vw_daily_radiation_summary` | daily summary of radiation values and anomalies |
+| `vw_hourly_radiation_summary` | hourly summary |
+| `vw_location_anomaly_summary` | anomaly summary by location and sensor |
+| `vw_model_performance` | model metric overview |
+| `vw_latest_anomalies` | recent detected anomalies |
 
-These views provide a DWH-style analytical layer that supports dashboard visualization and easier reporting.
+These views are used by the backend and dashboard so that not every summary has to be calculated manually in the frontend.
 
-## Machine Learning Integration
+## Labeled and unlabeled datasets
 
-After the ELT process, machine learning models are applied to the prepared feature dataset.
+The architecture supports both labeled and unlabeled data.
 
-The project includes:
+If the dataset contains `is_anomaly`, that value is stored as the original label and can be used later for evaluation.
 
-* threshold-based baseline detection,
-* Isolation Forest,
-* Local Outlier Factor,
-* model comparison,
-* anomaly scores,
-* anomaly status classification,
-* model metrics stored in PostgreSQL.
+If the dataset does not contain `is_anomaly`, the system can still run unsupervised anomaly detection. In that case, the model creates `predicted_anomaly`, but accuracy and similar metrics are not shown because there is no known true label.
 
-The project also includes a chronological train/test evaluation for the data science part of the project. Since the dataset is a time series, the split is chronological instead of random.
+This distinction is important for real radiation data, because real measurements will often not be manually labeled in advance.
+
+## Relation to the dashboard
+
+The dashboard uses the processed data and stored ML results to show:
+
+- current radiation level
+- anomaly status
+- recent anomalies
+- model metrics
+- model comparison
+- threshold preview
+- charts and summaries
+
+The dashboard does not calculate the ML results itself. It displays results that were created by the backend, database and ML scripts.
+
+## Possible real-time extension
+
+The current version imports files, but the same layers can be used later for real-time data.
+
+In a real-time version, new measurements would be inserted into the raw layer as they arrive. The cleaning, feature creation and prediction steps could then be applied to each new batch or each new record.
+
+The planned flow would be:
+
+```text
+new sensor measurement
+        ↓
+raw_measurements
+        ↓
+cleaning and feature update
+        ↓
+model prediction
+        ↓
+anomaly_results
+        ↓
+dashboard update
+```
+
+This is why the database is separated into layers instead of keeping everything in one table.
 
 ## Conclusion
 
-This architecture satisfies the analytical project requirements because it includes:
-
-* external data extraction,
-* PostgreSQL analytical storage,
-* raw, clean, feature, result and metrics layers,
-* ELT processing,
-* data cleaning,
-* feature engineering,
-* machine learning anomaly detection,
-* train/test evaluation,
-* analytical SQL views,
-* dashboard visualization.
-
-The system therefore represents a complete prototype for radiation monitoring, analytical processing and ML-based anomaly detection.
+The ELT structure is used to make the project easier to maintain and explain. It keeps original data, cleaned data, features, predictions and metrics in separate places. This is useful for both the current CSV-based version and for a possible future version that works with real-time radiation measurements.

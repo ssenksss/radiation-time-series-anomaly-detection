@@ -18,46 +18,91 @@ const activeFaq = ref<number | null>(0)
 const faq: FaqItem[] = [
   {
     q: 'How are anomalies detected?',
-    a: 'Anomalies are identified using the active detection model and configurable radiation thresholds. The current prototype supports threshold-based detection, while additional ML models are prepared for the next implementation phase.',
+    a: 'Anomalies are detected using traditional machine learning models trained on radiation measurement features. The application supports unsupervised anomaly detection models and supervised classifiers when labeled data is available.',
   },
   {
-    q: 'What dataset is used?',
-    a: 'The application works with a CSV-based radiation dataset. During development, a mock dataset is used until the real measured dataset becomes available.',
+    q: 'What is the difference between supervised and unsupervised models?',
+    a: 'Supervised models use original anomaly labels during training. Unsupervised models are trained without labels and learn unusual patterns from the feature values. If labels exist, they are used only later for evaluation.',
   },
   {
-    q: 'Can the threshold be changed?',
-    a: 'Yes. The threshold can be changed in the Settings module. After saving, the updated value is applied across the application.',
+    q: 'What does labeled evaluation mean?',
+    a: 'Labeled evaluation means that the dataset contains original anomaly labels. For unsupervised models, these labels are not used during training, but they are used after prediction to calculate Accuracy, Precision, Recall, F1-score, ROC-AUC, PR-AUC and the confusion matrix.',
   },
   {
-    q: 'Why are some models marked as pending?',
-    a: 'Some models are visible because they are planned for the ML phase, but they are not active until they are fully implemented in the backend.',
+    q: 'Why are metrics based on test records?',
+    a: 'The project uses a chronological 70/30 train-test split. Older measurements are used for training and later measurements are used for testing, which is more suitable for time-series radiation data than random splitting.',
   },
   {
-    q: 'Is this a production system?',
-    a: 'No. This is a bachelor thesis prototype for demonstrating radiation monitoring, anomaly detection, visualization, and early-warning system concepts.',
+    q: 'Why do I need to click Save Changes in Settings?',
+    a: 'Changing the active model or threshold only updates the selection in the interface. Save Changes starts the ML pipeline again, retrains the models with the selected settings and refreshes the stored metrics.',
+  },
+  {
+    q: 'What does Model Testing show?',
+    a: 'Model Testing compares two selected models using the metrics stored in PostgreSQL. For labeled datasets, it also shows ROC and Precision-Recall curves calculated on the chronological test split.',
+  },
+  {
+    q: 'What happens with unlabeled real datasets?',
+    a: 'If a dataset does not contain anomaly labels, supervised models are disabled and classification metrics cannot be calculated. The system then shows unsupervised detection results such as detected anomalies, anomaly rate and score statistics.',
+  },
+  {
+    q: 'Is this a production safety system?',
+    a: 'No. This is a bachelor thesis prototype for radiation monitoring, anomaly detection, visualization and decision support. A real safety-critical system would require calibration, validation and production-grade infrastructure.',
   },
 ]
 
 const usageNotes: UsageItem[] = [
   {
     title: 'Dashboard',
-    description: 'Review current radiation readings, alert status, detected anomalies, and model comparison overview.',
+    description: 'Review current radiation readings, alert status, detected anomalies and active monitoring summary.',
     badge: 'Monitoring',
   },
   {
     title: 'Anomalies',
-    description: 'Inspect detected events by timestamp, severity, anomaly score, and selected time range.',
+    description: 'Inspect detected events by timestamp, severity, anomaly score, model name and selected time range.',
     badge: 'Detection',
   },
   {
     title: 'Dataset',
-    description: 'Load, preview, and validate the active CSV dataset before analysis.',
+    description: 'Upload and activate CSV datasets. Labeled datasets enable supervised training and objective model evaluation.',
     badge: 'Data',
   },
   {
     title: 'Settings',
-    description: 'Adjust the detection threshold, active model, notification rules, and threshold preview.',
+    description: 'Choose the active detection model, adjust the threshold and save changes to retrain models and refresh metrics.',
     badge: 'Config',
+  },
+  {
+    title: 'Model Testing',
+    description: 'Compare implemented models using Accuracy, Precision, Recall, F1-score, ROC-AUC, PR-AUC and confusion matrix values.',
+    badge: 'Evaluation',
+  },
+  {
+    title: 'ML Outputs',
+    description: 'Generated reports, CSV metric tables and plots are stored in ml/outputs for use in project documentation.',
+    badge: 'Reports',
+  },
+]
+
+const modelGroups: UsageItem[] = [
+  {
+    title: 'Unsupervised models',
+    description: 'Isolation Forest, Local Outlier Factor, One-Class SVM, K-Means Distance, Gaussian Mixture Model, PCA Reconstruction Error, HBOS and ECOD. DBSCAN is included separately as a clustering-based baseline because it marks low-density points as noise instead of using the same reusable train/predict workflow.',
+    badge: '9 models',
+  },
+  {
+    title: 'Supervised models',
+    description: 'Logistic Regression, Decision Tree, Random Forest, Gradient Boosting and KNN Classifier. These models require original anomaly labels.',
+    badge: '5 models',
+  },
+  {
+    title: 'Evaluation outputs',
+    description: 'The project generates model_evaluation_report.md, full metric CSV tables, best-metric markers, confusion matrices, ROC/PR curves, bar charts and anomaly score box plots.',
+    badge: 'Outputs',
+  },
+  {
+    title: 'Decision support',
+    description: 'The decision support layer helps organize and interpret model results. Traditional ML is used for model training, prediction and metric calculation.',
+    badge: 'Support',
   },
 ]
 
@@ -73,26 +118,25 @@ const toggleFaq = (index: number) => {
 
         <h1>Help & Documentation</h1>
         <p>
-          Quick guidance for using the monitoring dashboard, interpreting anomaly results,
-          and understanding the current prototype scope.
+          Guidance for using the radiation monitoring dashboard, understanding model
+          evaluation results and interpreting the current bachelor thesis prototype.
         </p>
       </section>
 
       <section class="panel">
         <div class="section-header">
           <div>
-
             <h2>FAQ</h2>
           </div>
         </div>
 
         <div class="faq-list">
           <button
-              v-for="(item, index) in faq"
-              :key="item.q"
-              class="faq-item"
-              type="button"
-              @click="toggleFaq(index)"
+            v-for="(item, index) in faq"
+            :key="item.q"
+            class="faq-item"
+            type="button"
+            @click="toggleFaq(index)"
           >
             <div class="faq-question">
               <h3>{{ item.q }}</h3>
@@ -109,16 +153,37 @@ const toggleFaq = (index: number) => {
       <section class="panel">
         <div class="section-header">
           <div>
-
             <h2>Usage Notes</h2>
           </div>
         </div>
 
         <div class="usage-list">
           <article
-              v-for="item in usageNotes"
-              :key="item.title"
-              class="usage-item"
+            v-for="item in usageNotes"
+            :key="item.title"
+            class="usage-item"
+          >
+            <div class="usage-item__top">
+              <h3>{{ item.title }}</h3>
+              <span>{{ item.badge }}</span>
+            </div>
+            <p>{{ item.description }}</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="section-header">
+          <div>
+            <h2>Model Evaluation</h2>
+          </div>
+        </div>
+
+        <div class="usage-list">
+          <article
+            v-for="item in modelGroups"
+            :key="item.title"
+            class="usage-item"
           >
             <div class="usage-item__top">
               <h3>{{ item.title }}</h3>
@@ -132,15 +197,16 @@ const toggleFaq = (index: number) => {
       <section class="panel prototype-note">
         <div class="section-header">
           <div>
-            <h2>Prototype Scope</h2>
+            <h2>Research Prototype</h2>
           </div>
         </div>
 
         <p>
-          This application is a research prototype developed as part of a bachelor thesis.
-          It demonstrates the structure of a radiation monitoring and early-warning system,
-          but it is not intended for real safety-critical operation without validation,
-          calibration, and production-grade infrastructure.
+          This application is developed as part of a bachelor thesis. It demonstrates
+          a radiation level monitoring system with traditionally trained machine
+          learning models and a decision support framework. It is not intended for
+          real safety-critical operation without additional validation, calibration
+          and production infrastructure.
         </p>
       </section>
     </div>
@@ -161,11 +227,11 @@ const toggleFaq = (index: number) => {
   border-radius: 22px;
   border: 1px solid rgba(120, 151, 235, 0.12);
   background:
-      radial-gradient(circle at top right, rgba(76, 111, 255, 0.08), transparent 30%),
-      linear-gradient(180deg, rgba(12, 18, 35, 0.88), rgba(9, 14, 28, 0.96));
+    radial-gradient(circle at top right, rgba(76, 111, 255, 0.08), transparent 30%),
+    linear-gradient(180deg, rgba(12, 18, 35, 0.88), rgba(9, 14, 28, 0.96));
   box-shadow:
-      0 10px 36px rgba(0, 0, 0, 0.22),
-      inset 0 1px 0 rgba(255,255,255,0.02);
+    0 10px 36px rgba(0, 0, 0, 0.22),
+    inset 0 1px 0 rgba(255,255,255,0.02);
   backdrop-filter: blur(14px);
 }
 
@@ -277,13 +343,14 @@ const toggleFaq = (index: number) => {
   border: 1px solid rgba(107, 158, 255, 0.16);
   color: #cbdcff;
   font-size: 12px;
+  white-space: nowrap;
 }
 
 .prototype-note {
   border-color: rgba(255, 179, 106, 0.16);
   background:
-      radial-gradient(circle at top right, rgba(255, 179, 106, 0.08), transparent 30%),
-      linear-gradient(180deg, rgba(12, 18, 35, 0.88), rgba(9, 14, 28, 0.96));
+    radial-gradient(circle at top right, rgba(255, 179, 106, 0.08), transparent 30%),
+    linear-gradient(180deg, rgba(12, 18, 35, 0.88), rgba(9, 14, 28, 0.96));
 }
 
 @media (max-width: 760px) {

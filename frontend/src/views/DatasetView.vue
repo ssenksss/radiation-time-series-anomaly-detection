@@ -156,10 +156,17 @@ const columnsText = computed(() => {
   return Object.keys(firstMeasurement).join(', ')
 })
 
+const cleanDatasetName = (name: string) => {
+  return name
+    .replace(/^\d{8}_\d{6}_/, '')
+    .replace(/\.csv$/i, '')
+}
+
 const datasetTableRows = computed(() => {
   if (datasets.value.length > 0) {
     return datasets.value.map((dataset) => ({
-      name: dataset.name,
+      id: dataset.id,
+      name: cleanDatasetName(dataset.originalFilename || dataset.name),
       uploaded: dataset.uploadedAt,
       size: `${dataset.rowCount} rows`,
       status: dataset.isActive ? 'Active' : dataset.status,
@@ -168,6 +175,7 @@ const datasetTableRows = computed(() => {
 
   return [
     {
+      id: 0,
       name: datasetName.value,
       uploaded: backendSummary.value?.lastUpdated || 'Loaded from backend',
       size: `${Math.max(Number(dataPointsText.value), 1)} rows`,
@@ -348,8 +356,8 @@ onMounted(() => {
           </div>
 
           <div
-              v-for="item in datasetTableRows"
-              :key="`${item.name}-${item.status}`"
+             v-for="item in datasetTableRows"
+             :key="item.id"
               class="dataset-table__row"
           >
             <span class="dataset-name">

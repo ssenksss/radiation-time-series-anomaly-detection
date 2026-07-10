@@ -5,7 +5,6 @@ VALID_MODEL_IDS = {
     "isolation_forest",
     "lof",
     "one_class_svm",
-    "elliptic_envelope",
     "dbscan",
     "kmeans_distance",
     "gaussian_mixture",
@@ -54,8 +53,6 @@ def normalize_model_id(model_id: str) -> str:
         "oneclasssvm": "one_class_svm",
         "ocsvm": "one_class_svm",
 
-        "elliptic_envelope": "elliptic_envelope",
-        "ellipticenvelope": "elliptic_envelope",
 
         "dbscan": "dbscan",
 

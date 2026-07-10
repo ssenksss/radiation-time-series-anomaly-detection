@@ -1,5 +1,54 @@
-# Vue 3 + TypeScript + Vite
+# Radiation Monitoring Frontend
 
-This template should help get you started developing with Vue 3 and TypeScript in Vite. The template uses Vue 3 `<script setup>` SFCs, check out the [script setup docs](https://v3.vuejs.org/api/sfc-script-setup.html#sfc-script-setup) to learn more.
+This folder contains the Vue 3 frontend for the Radiation Monitoring prototype.
 
-Learn more about the recommended Project Setup and IDE Support in the [Vue Docs TypeScript Guide](https://vuejs.org/guide/typescript/overview.html#project-setup).
+## Main Technologies
+
+- Vue 3
+- TypeScript
+- Vite
+- Chart.js
+- Pinia
+
+## Main Screens
+
+- Dashboard
+- Dataset upload
+- Settings
+- Model Testing modal
+- Anomalies log
+
+## Frontend Role
+
+The frontend communicates with the FastAPI backend and displays:
+
+- radiation measurements
+- anomaly markers
+- threshold preview
+- model metrics
+- model comparison
+- ROC and Precision-Recall curves
+- notification settings
+- decision support information based on model outputs
+
+The frontend does not train models. It presents results created by the traditional ML pipeline and helps users interpret them through visual summaries and comparison views.
+
+## Development
+
+Install dependencies:
+
+```bash
+npm install
+```
+
+Run development server:
+
+```bash
+npm run dev
+```
+
+Build production bundle:
+
+```bash
+npm run build
+```

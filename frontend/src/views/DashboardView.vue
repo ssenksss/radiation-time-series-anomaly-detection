@@ -79,6 +79,14 @@ const formatMetric = (value: number | null | undefined) => {
   return Number(value).toFixed(3)
 }
 
+const formatSeconds = (value: number | null | undefined) => {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) {
+    return 'N/A'
+  }
+
+  return `${Number(value).toFixed(4)}s`
+}
+
 const formatChartLabel = (timestamp: string) => {
   const parts = timestamp.split(' ')
   return parts[1]?.slice(0, 5) ?? timestamp
@@ -203,8 +211,26 @@ const modelPanelPrecision = computed(() => {
   return modelPanelPrimary.value?.precision ?? modelInfo.value?.precision
 })
 
-const modelPanelFpr = computed(() => {
-  return modelPanelPrimary.value?.fpr ?? modelInfo.value?.fpr
+
+
+const modelPanelRecall = computed(() => {
+  return modelPanelPrimary.value?.recall ?? modelInfo.value?.recall
+})
+
+const modelPanelF1Score = computed(() => {
+  return modelPanelPrimary.value?.f1Score ?? modelInfo.value?.f1Score
+})
+
+const modelPanelRocAuc = computed(() => {
+  return modelPanelPrimary.value?.rocAuc ?? modelInfo.value?.rocAuc
+})
+
+const modelPanelTrainingTime = computed(() => {
+  return modelPanelPrimary.value?.trainingTimeSeconds ?? modelInfo.value?.trainingTimeSeconds
+})
+
+const modelPanelPredictionTime = computed(() => {
+  return modelPanelPrimary.value?.predictionTimeSeconds ?? modelInfo.value?.predictionTimeSeconds
 })
 
 const modelPanelAnomalyRate = computed(() => {
@@ -355,11 +381,14 @@ const dashboardData = computed(() => {
       accuracyValue: formatPercent(modelPanelScore.value),
       progressWidth: `${Math.max(0, Math.min(100, modelPanelScore.value ?? 0))}%`,
       source: isUnsupervisedEvaluation.value
-          ? `Detected ${modelPanelDetectedAnomalies.value ?? 0} anomalies`
-          : `Precision ${formatMetric(modelPanelPrecision.value)}`,
+          ? `Detected ${modelPanelDetectedAnomalies.value ?? 0} anomalies · Rate ${formatPercent(modelPanelAnomalyRate.value, 3)}`
+          : `Precision ${formatMetric(modelPanelPrecision.value)} · Recall ${formatMetric(modelPanelRecall.value)}`,
       action: isUnsupervisedEvaluation.value
-          ? `Anomaly rate ${formatPercent(modelPanelAnomalyRate.value, 3)}`
-          : `FPR ${formatMetric(modelPanelFpr.value)}`,
+          ? `Training ${formatSeconds(modelPanelTrainingTime.value)}`
+          : `F1 ${formatMetric(modelPanelF1Score.value)} · ROC-AUC ${formatMetric(modelPanelRocAuc.value)}`,
+      timing: isUnsupervisedEvaluation.value
+          ? `Prediction ${formatSeconds(modelPanelPredictionTime.value)}`
+          : `Training ${formatSeconds(modelPanelTrainingTime.value)} · Prediction ${formatSeconds(modelPanelPredictionTime.value)}`,
       bars: modelBars.value,
       labels: modelBars.value.map((bar) => bar.label),
     },
@@ -602,6 +631,10 @@ onMounted(() => {
             <div class="model-panel__meta">
               <span>{{ dashboardData.modelTesting.source }}</span>
               <span>{{ dashboardData.modelTesting.action }}</span>
+            </div>
+
+            <div class="model-panel__timing">
+              {{ dashboardData.modelTesting.timing }}
             </div>
 
             <div v-if="dashboardData.modelTesting.bars.length" class="mini-bars">
@@ -1228,6 +1261,12 @@ onMounted(() => {
   margin-bottom: 14px;
   color: #8094ba;
   font-size: 13px;
+}
+.model-panel__timing {
+  margin: -6px 0 14px;
+  color: #6f83aa;
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .mini-bars {

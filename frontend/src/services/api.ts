@@ -4,6 +4,7 @@ import type {
     DatasetUploadResponse,
     Measurement,
     ModelInfo,
+    ModelCurvesResponse,
     PipelineStatus,
     Summary,
 } from '../types/api'
@@ -50,6 +51,25 @@ export function getModelInfo(
     const query = params.toString()
 
     return request<ModelInfo>(query ? `/model-info?${query}` : '/model-info')
+}
+
+export function getModelCurves(
+    modelA?: string,
+    modelB?: string,
+): Promise<ModelCurvesResponse> {
+    const params = new URLSearchParams()
+
+    if (modelA) {
+        params.set('modelA', modelA)
+    }
+
+    if (modelB) {
+        params.set('modelB', modelB)
+    }
+
+    const query = params.toString()
+
+    return request<ModelCurvesResponse>(query ? `/model-curves?${query}` : '/model-curves')
 }
 
 export function getSettings(): Promise<AppSettings> {

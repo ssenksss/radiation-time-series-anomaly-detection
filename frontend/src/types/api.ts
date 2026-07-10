@@ -24,7 +24,7 @@ export interface Summary {
     lastUpdated: string
 }
 
-export type EvaluationMode = 'supervised' | 'unsupervised' | 'pending'
+export type EvaluationMode = 'supervised' | 'labeled' | 'unsupervised' | 'pending'
 export type ModelCategory = 'unsupervised' | 'supervised' | 'future'
 
 export interface ModelComparisonItem {
@@ -39,8 +39,21 @@ export interface ModelComparisonItem {
     accuracy: number | null
     precision: number | null
     recall: number | null
+    f1Score?: number | null
+    rocAuc?: number | null
+    prAuc?: number | null
     fpr: number | null
     fnr: number | null
+    tp?: number
+    tn?: number
+    fp?: number
+    fn?: number
+    trueAnomalies?: number | null
+    scoreMean?: number | null
+    scoreStd?: number | null
+    scoreVariance?: number | null
+    trainingTimeSeconds?: number | null
+    predictionTimeSeconds?: number | null
     evaluationMode?: EvaluationMode
     totalRecords?: number
     totalAnomalies?: number
@@ -64,6 +77,33 @@ export interface SelectedModels {
     modelB: string
 }
 
+export interface CurvePoint {
+    x: number
+    y: number
+}
+
+export interface ModelCurveItem {
+    id: string
+    model: string
+    category?: ModelCategory
+    available: boolean
+    message?: string | null
+    evaluationScope?: string | null
+    rocAuc?: number | null
+    prAuc?: number | null
+    rocCurve: CurvePoint[]
+    prCurve: CurvePoint[]
+}
+
+export interface ModelCurvesResponse {
+    datasetId: number
+    datasetHasLabels: boolean
+    selectedModels: SelectedModels
+    available: boolean
+    message?: string | null
+    curves: ModelCurveItem[]
+}
+
 export interface ConfusionMatrix {
     tp: number
     tn: number
@@ -83,6 +123,9 @@ export interface ModelInfo {
     accuracy: number | null
     precision: number | null
     recall?: number | null
+    f1Score?: number | null
+    rocAuc?: number | null
+    prAuc?: number | null
     fpr: number | null
     fnr?: number | null
     modelScore?: number | null
@@ -92,11 +135,18 @@ export interface ModelInfo {
     totalRecords?: number
     totalAnomalies?: number
     anomalyRate?: number | null
+    trueAnomalies?: number | null
+    scoreMean?: number | null
+    scoreStd?: number | null
+    scoreVariance?: number | null
+    trainingTimeSeconds?: number | null
+    predictionTimeSeconds?: number | null
     source: string
     availableModels: AvailableModel[]
     selectedModels: SelectedModels
     confusionMatrix: ConfusionMatrix
     comparison: ModelComparisonItem[]
+    allModelResults?: ModelComparisonItem[]
     groups?: ModelInfoGroups
     lastTrainedAt?: string
 }

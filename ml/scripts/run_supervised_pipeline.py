@@ -1,15 +1,49 @@
+from pathlib import Path
+import sys
 import time
-from typing import Dict, Tuple
+from typing import Any, Callable, Dict, Tuple
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+SCRIPTS_DIR = PROJECT_ROOT / "ml" / "scripts"
+
+for import_path in (PROJECT_ROOT, SCRIPTS_DIR):
+    if str(import_path) not in sys.path:
+        sys.path.append(str(import_path))
 
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
-from sklearn.linear_model import LogisticRegression
-from sklearn.neighbors import KNeighborsClassifier
-from sklearn.preprocessing import StandardScaler
-from sklearn.tree import DecisionTreeClassifier
+from sklearn.metrics import (
+    average_precision_score,
+    f1_score,
+    roc_auc_score,
+)
 
 from db import fetch_one, fetch_all, execute_query, execute_many
+from ml.models.supervised.train_logistic_regression import (
+    MODEL_NAME as LOGISTIC_REGRESSION_NAME,
+    MODEL_ID as LOGISTIC_REGRESSION_ID,
+    train_supervised_model as train_logistic_regression_model,
+)
+from ml.models.supervised.train_decision_tree import (
+    MODEL_NAME as DECISION_TREE_NAME,
+    MODEL_ID as DECISION_TREE_ID,
+    train_supervised_model as train_decision_tree_model,
+)
+from ml.models.supervised.train_random_forest import (
+    MODEL_NAME as RANDOM_FOREST_NAME,
+    MODEL_ID as RANDOM_FOREST_ID,
+    train_supervised_model as train_random_forest_model,
+)
+from ml.models.supervised.train_gradient_boosting import (
+    MODEL_NAME as GRADIENT_BOOSTING_NAME,
+    MODEL_ID as GRADIENT_BOOSTING_ID,
+    train_supervised_model as train_gradient_boosting_model,
+)
+from ml.models.supervised.train_knn_classifier import (
+    MODEL_NAME as KNN_CLASSIFIER_NAME,
+    MODEL_ID as KNN_CLASSIFIER_ID,
+    train_supervised_model as train_knn_classifier_model,
+)
 
 
 FEATURE_COLUMNS = [
@@ -24,15 +58,16 @@ FEATURE_COLUMNS = [
 ]
 
 TRAIN_RATIO = 0.70
-RANDOM_STATE = 42
 
-SUPERVISED_MODELS = {
-    "Logistic Regression": "logistic_regression",
-    "Decision Tree": "decision_tree",
-    "Random Forest": "random_forest",
-    "Gradient Boosting": "gradient_boosting",
-    "KNN Classifier": "knn_classifier",
-}
+SupervisedTrainFunction = Callable[[pd.DataFrame, pd.DataFrame, pd.DataFrame, list[str]], Dict[str, Any]]
+
+SUPERVISED_MODELS: list[tuple[str, str, SupervisedTrainFunction]] = [
+    (LOGISTIC_REGRESSION_NAME, LOGISTIC_REGRESSION_ID, train_logistic_regression_model),
+    (DECISION_TREE_NAME, DECISION_TREE_ID, train_decision_tree_model),
+    (RANDOM_FOREST_NAME, RANDOM_FOREST_ID, train_random_forest_model),
+    (GRADIENT_BOOSTING_NAME, GRADIENT_BOOSTING_ID, train_gradient_boosting_model),
+    (KNN_CLASSIFIER_NAME, KNN_CLASSIFIER_ID, train_knn_classifier_model),
+]
 
 
 def get_active_dataset_id() -> int:
@@ -139,9 +174,14 @@ def normalize_scores(scores: np.ndarray) -> np.ndarray:
     return (values - min_value) / (max_value - min_value)
 
 
-def calculate_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float]:
+def calculate_metrics(
+        y_true: np.ndarray,
+        y_pred: np.ndarray,
+        y_score: np.ndarray,
+) -> Dict[str, float]:
     y_true = np.asarray(y_true).astype(int)
     y_pred = np.asarray(y_pred).astype(int)
+    y_score = np.asarray(y_score).astype(float)
 
     tp = int(((y_true == 1) & (y_pred == 1)).sum())
     tn = int(((y_true == 0) & (y_pred == 0)).sum())
@@ -153,114 +193,66 @@ def calculate_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float
     accuracy = ((tp + tn) / total) * 100 if total else 0
     precision = tp / (tp + fp) if (tp + fp) else 0
     recall = tp / (tp + fn) if (tp + fn) else 0
+    f1 = f1_score(y_true, y_pred, zero_division=0)
     fpr = fp / (fp + tn) if (fp + tn) else 0
     fnr = fn / (fn + tp) if (fn + tp) else 0
 
+    has_both_classes = len(np.unique(y_true)) == 2
+
+    roc_auc = None
+    pr_auc = None
+
+    if has_both_classes:
+        roc_auc = roc_auc_score(y_true, y_score)
+        pr_auc = average_precision_score(y_true, y_score)
+
     return {
-        "accuracy": round(accuracy, 2),
-        "precision": round(precision, 4),
-        "recall": round(recall, 4),
-        "fpr": round(fpr, 4),
-        "fnr": round(fnr, 4),
+        "evaluation_mode": "supervised",
+        "accuracy": round(float(accuracy), 2),
+        "precision": round(float(precision), 4),
+        "recall": round(float(recall), 4),
+        "f1_score": round(float(f1), 4),
+        "roc_auc": round(float(roc_auc), 4) if roc_auc is not None else None,
+        "pr_auc": round(float(pr_auc), 4) if pr_auc is not None else None,
+        "fpr": round(float(fpr), 4),
+        "fnr": round(float(fnr), 4),
         "tp": tp,
         "tn": tn,
         "fp": fp,
         "fn": fn,
+        "true_anomalies": int(y_true.sum()),
         "total_records": total,
         "total_anomalies": int(y_pred.sum()),
+        "score_mean": round(float(y_score.mean()), 6),
+        "score_std": round(float(y_score.std()), 6),
+        "score_variance": round(float(y_score.var()), 6),
     }
 
 
-def build_model(model_name: str):
-    if model_name == "Logistic Regression":
-        return LogisticRegression(
-            max_iter=1000,
-            class_weight="balanced",
-            random_state=RANDOM_STATE,
-        )
-
-    if model_name == "Decision Tree":
-        return DecisionTreeClassifier(
-            max_depth=5,
-            min_samples_leaf=5,
-            class_weight="balanced",
-            random_state=RANDOM_STATE,
-        )
-
-    if model_name == "Random Forest":
-        return RandomForestClassifier(
-            n_estimators=150,
-            max_depth=7,
-            min_samples_leaf=4,
-            class_weight="balanced",
-            random_state=RANDOM_STATE,
-            n_jobs=-1,
-        )
-
-    if model_name == "Gradient Boosting":
-        return GradientBoostingClassifier(
-            n_estimators=80,
-            learning_rate=0.04,
-            max_depth=2,
-            random_state=RANDOM_STATE,
-        )
-
-    if model_name == "KNN Classifier":
-        return KNeighborsClassifier(
-            n_neighbors=9,
-            weights="distance",
-        )
-
-    raise ValueError(f"Unsupported supervised model: {model_name}")
-
-
-def model_requires_scaling(model_name: str) -> bool:
-    return model_name in {"Logistic Regression", "KNN Classifier"}
-
-
 def train_predict_model(
-        model_name: str,
+        train_function: SupervisedTrainFunction,
         train_dataframe: pd.DataFrame,
         test_dataframe: pd.DataFrame,
         full_dataframe: pd.DataFrame,
 ) -> Tuple[pd.DataFrame, Dict[str, float]]:
-    model = build_model(model_name)
+    output = train_function(
+        train_dataframe,
+        test_dataframe,
+        full_dataframe,
+        FEATURE_COLUMNS,
+    )
 
-    x_train = train_dataframe[FEATURE_COLUMNS]
-    y_train = train_dataframe["original_label"].astype(int).to_numpy()
-
-    x_test = test_dataframe[FEATURE_COLUMNS]
     y_test = test_dataframe["original_label"].astype(int).to_numpy()
+    test_predictions = np.asarray(output["test_predictions"]).astype(int)
+    test_scores = np.asarray(output["test_scores"]).astype(float)
 
-    x_full = full_dataframe[FEATURE_COLUMNS]
-
-    if model_requires_scaling(model_name):
-        scaler = StandardScaler()
-        x_train_model = scaler.fit_transform(x_train)
-        x_test_model = scaler.transform(x_test)
-        x_full_model = scaler.transform(x_full)
-    else:
-        x_train_model = x_train
-        x_test_model = x_test
-        x_full_model = x_full
-
-    model.fit(x_train_model, y_train)
-
-    test_predictions = model.predict(x_test_model).astype(int)
-    full_predictions = model.predict(x_full_model).astype(int)
-
-    if hasattr(model, "predict_proba"):
-        full_scores = model.predict_proba(x_full_model)[:, 1]
-    elif hasattr(model, "decision_function"):
-        full_scores = model.decision_function(x_full_model)
-    else:
-        full_scores = full_predictions.astype(float)
-
-    metrics = calculate_metrics(y_test, test_predictions)
+    metrics = calculate_metrics(y_test, test_predictions, test_scores)
+    metrics["training_time_seconds"] = output["training_time_seconds"]
+    metrics["prediction_time_seconds"] = output["prediction_time_seconds"]
 
     results = full_dataframe.copy()
-    results["predicted_anomaly"] = full_predictions.astype(bool)
-    results["anomaly_score"] = normalize_scores(full_scores)
+    results["predicted_anomaly"] = np.asarray(output["full_predictions"]).astype(bool)
+    results["anomaly_score"] = normalize_scores(np.asarray(output["full_scores"]).astype(float))
 
     return results, metrics
 
@@ -335,23 +327,57 @@ def replace_model_metrics(dataset_id: int, model_name: str, metrics: Dict[str, f
             accuracy,
             precision_score,
             recall_score,
+            f1_score,
+            roc_auc,
+            pr_auc,
             fpr,
             fnr,
+            tp,
+            tn,
+            fp,
+            fn,
+            true_anomalies,
             total_records,
-            total_anomalies
+            total_anomalies,
+            score_mean,
+            score_std,
+            score_variance,
+            training_time_seconds,
+            prediction_time_seconds,
+            evaluation_mode
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s);
+        VALUES (
+            %s, %s, %s, %s, %s,
+            %s, %s, %s, %s, %s,
+            %s, %s, %s, %s, %s,
+            %s, %s, %s, %s, %s,
+            %s, %s, %s
+        );
         """,
         (
             dataset_id,
             model_name,
-            metrics["accuracy"],
-            metrics["precision"],
-            metrics["recall"],
-            metrics["fpr"],
-            metrics["fnr"],
-            int(metrics["total_records"]),
-            int(metrics["total_anomalies"]),
+            metrics.get("accuracy"),
+            metrics.get("precision"),
+            metrics.get("recall"),
+            metrics.get("f1_score"),
+            metrics.get("roc_auc"),
+            metrics.get("pr_auc"),
+            metrics.get("fpr"),
+            metrics.get("fnr"),
+            metrics.get("tp"),
+            metrics.get("tn"),
+            metrics.get("fp"),
+            metrics.get("fn"),
+            metrics.get("true_anomalies"),
+            int(metrics.get("total_records") or 0),
+            int(metrics.get("total_anomalies") or 0),
+            metrics.get("score_mean"),
+            metrics.get("score_std"),
+            metrics.get("score_variance"),
+            metrics.get("training_time_seconds"),
+            metrics.get("prediction_time_seconds"),
+            metrics.get("evaluation_mode"),
         ),
     )
 
@@ -377,12 +403,12 @@ def run_supervised_pipeline() -> None:
     print(f"Train anomalies: {int(train_dataframe['original_label'].sum())}")
     print(f"Test anomalies: {int(test_dataframe['original_label'].sum())}")
 
-    for index, model_name in enumerate(SUPERVISED_MODELS.keys(), start=1):
+    for index, (model_name, _model_id, train_function) in enumerate(SUPERVISED_MODELS, start=1):
         print("\n" + "-" * 60)
         print(f"Step {index}/5: train/test {model_name}")
 
         results, metrics = train_predict_model(
-            model_name=model_name,
+            train_function=train_function,
             train_dataframe=train_dataframe,
             test_dataframe=test_dataframe,
             full_dataframe=full_dataframe,
@@ -394,12 +420,17 @@ def run_supervised_pipeline() -> None:
         print(f"Accuracy: {metrics['accuracy']}%")
         print(f"Precision: {metrics['precision']}")
         print(f"Recall: {metrics['recall']}")
+        print(f"F1-score: {metrics['f1_score']}")
+        print(f"ROC-AUC: {metrics['roc_auc']}")
+        print(f"PR-AUC: {metrics['pr_auc']}")
         print(f"FPR: {metrics['fpr']}")
         print(f"FNR: {metrics['fnr']}")
         print(
             f"Confusion matrix on TEST: "
             f"TP={metrics['tp']}, TN={metrics['tn']}, FP={metrics['fp']}, FN={metrics['fn']}"
         )
+        print(f"Training time: {metrics['training_time_seconds']} seconds")
+        print(f"Prediction time: {metrics['prediction_time_seconds']} seconds")
 
     elapsed = round(time.time() - started_at, 2)
 

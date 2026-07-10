@@ -1,125 +1,214 @@
 # Requirements Mapping
 
-This document maps the professor's project requirements to the implemented parts of the Radiation Monitoring Anomaly Detection System.
+This document shows how the main thesis requirements are covered in the project.
 
-## Project Scope
+Thesis title:
 
-The project represents an analytical radiation monitoring system with ELT processing, PostgreSQL analytical storage, machine learning anomaly detection and dashboard visualization.
+**Radiation Level Monitoring System with Traditionally Trained Machine Learning Models and a Decision Support Framework Developed Using Generative Artificial Intelligence**
 
-It is primarily intended to cover:
+## Project scope
 
-* the second colloquium requirements related to analytical systems, data lake / data warehouse concepts and ELT processing,
-* the final data science project requirements related to data preparation, machine learning and result analysis.
+The project is a web prototype for radiation monitoring and anomaly detection. It includes:
 
-## Requirements Mapping Table
+- CSV / ZIP data import
+- PostgreSQL storage
+- ELT-style data processing
+- data cleaning
+- feature engineering
+- traditional machine learning models
+- model evaluation
+- dashboard visualization
+- decision support around model outputs
 
-| Professor's Requirement             | Implementation in This Project                                                           | Status    |
-| ----------------------------------- | ---------------------------------------------------------------------------------------- | --------- |
-| External data source                | Radiation measurements are imported from external CSV or ZIP files.                      | Completed |
-| Data extraction                     | CSV / ZIP files are parsed and prepared for ingestion.                                   | Completed |
-| Loading into data lake / database   | Raw imported records are stored in PostgreSQL table `raw_measurements`.                  | Completed |
-| Data lake-like layered architecture | The project separates raw, clean, feature, ML result and metric layers.                  | Completed |
-| ELT process                         | Data is first loaded into PostgreSQL, then transformed through Python scripts.           | Completed |
-| Data cleaning                       | Invalid timestamps and invalid radiation values are removed; missing values are handled. | Completed |
-| Data standardization                | Different CSV formats and column names are mapped into one unified schema.               | Completed |
-| Feature engineering                 | Time-series features are created in `feature_measurements`.                              | Completed |
-| Analytical / DWH layer              | SQL views are created for daily, hourly, location-based and model-based analysis.        | Completed |
-| Dashboard visualization             | Vue dashboard visualizes radiation levels, anomalies, alerts and model metrics.          | Completed |
-| Machine learning model              | Isolation Forest and Local Outlier Factor are implemented for anomaly detection.         | Completed |
-| Baseline model                      | Threshold Detection is used as a baseline comparison model.                              | Completed |
-| Model comparison                    | Dashboard compares model metrics such as accuracy, precision, recall, FPR and FNR.       | Completed |
-| Train/test split                    | `train_test_evaluation.py` creates chronological 70/30 train/test split.                 | Completed |
-| Time-series evaluation              | The split is chronological to prevent future data from leaking into training data.       | Completed |
-| Model evaluation                    | Metrics are calculated and stored in `model_metrics`.                                    | Completed |
-| Report generation                   | `generate_report.py` creates `ml/outputs/ml_report.md`.                                  | Completed |
-| Train/test report                   | `train_test_evaluation.py` creates `ml/outputs/train_test_report.md`.                    | Completed |
-| Result interpretation               | Reports describe dataset summary, cleaning, features, metrics and conclusion.            | Completed |
-| Support for real data               | The system supports future real radiation CSV files through upload and column mapping.   | Completed |
+The current version works with uploaded files. A real-time version is left as a possible extension.
 
-## Implemented Data Flow
+## Scope separation
+
+| Part | Implementation |
+| --- | --- |
+| ML training | traditional Python ML scripts |
+| ML models | supervised and unsupervised algorithms |
+| ML evaluation | metrics calculated from stored predictions and test labels where available |
+| Dashboard | Vue and FastAPI application |
+| Decision support | interpretation of model outputs, metrics, anomaly status and alerts |
+| GenAI role | support for the decision-support/explanation layer, not for model training |
+
+## Requirement mapping table
+
+| Requirement | How it is covered | Status |
+| --- | --- | --- |
+| External data source | data is imported from CSV or ZIP files | done |
+| Data extraction | uploaded files are parsed before loading | done |
+| Database loading | original values are stored in `raw_measurements` | done |
+| Raw data layer | `raw_measurements` keeps imported records | done |
+| Clean data layer | `clean_measurements` keeps cleaned records | done |
+| Feature layer | `feature_measurements` keeps ML features | done |
+| Result layer | `anomaly_results` keeps predictions and scores | done |
+| Metric layer | `model_metrics` keeps model metrics | done |
+| ELT processing | data is loaded first, then cleaned and transformed | done |
+| Data cleaning | invalid timestamps and invalid radiation values are handled | done |
+| Schema standardization | different CSV formats are mapped to a common structure | done |
+| Feature engineering | time and rolling features are created | done |
+| Analytical views | SQL views are used for summaries | done |
+| Dashboard | measurements, anomalies, model metrics and alerts are shown | done |
+| Unsupervised ML | 9 anomaly detection models are implemented | done |
+| Supervised ML | 5 classification models are implemented | done |
+| Traditional model training | models are trained with standard ML workflow | done |
+| Train/test split | chronological 70/30 split is used | done |
+| Model evaluation | metrics are calculated and stored | done |
+| Model comparison | models are compared in tables and in the application | done |
+| ROC/PR curves | generated for labeled evaluation | done |
+| Confusion matrices | generated for evaluated models | done |
+| Support for unlabeled data | system reports anomaly statistics when labels are missing | done |
+| Support for labeled data | system calculates classification metrics when labels exist | done |
+| Decision support framework | dashboard and reports organize model outputs for interpretation | done |
+
+## Implemented data flow
 
 ```text
-External CSV / ZIP source
-        ↓
+CSV / ZIP file
+    ↓
 raw_measurements
-        ↓
+    ↓
 clean_measurements
-        ↓
+    ↓
 feature_measurements
-        ↓
+    ↓
 anomaly_results
-        ↓
+    ↓
 model_metrics
-        ↓
+    ↓
 analytics views
-        ↓
-dashboard visualization
+    ↓
+dashboard and reports
 ```
 
-## Database Tables
+## Main database tables
 
-| Table                  | Role                                          |
-| ---------------------- | --------------------------------------------- |
-| `datasets`             | Stores imported dataset metadata.             |
-| `raw_measurements`     | Stores raw extracted records.                 |
-| `clean_measurements`   | Stores cleaned and standardized records.      |
-| `feature_measurements` | Stores engineered ML features.                |
-| `anomaly_results`      | Stores anomaly predictions and scores.        |
-| `model_metrics`        | Stores model evaluation metrics.              |
-| `app_settings`         | Stores active dataset and threshold settings. |
+| Table | Role |
+| --- | --- |
+| `datasets` | stores dataset information |
+| `raw_measurements` | stores original imported records |
+| `clean_measurements` | stores cleaned records |
+| `feature_measurements` | stores features for ML models |
+| `anomaly_results` | stores model predictions and anomaly scores |
+| `model_metrics` | stores calculated metrics |
+| `app_settings` | stores active dataset, model and threshold |
 
-## Analytical Views
+## Analytical views
 
-| View                          | Purpose                                   |
-| ----------------------------- | ----------------------------------------- |
-| `vw_daily_radiation_summary`  | Daily radiation and anomaly aggregation.  |
-| `vw_hourly_radiation_summary` | Hourly radiation and anomaly aggregation. |
-| `vw_location_anomaly_summary` | Aggregation by location and sensor.       |
-| `vw_model_performance`        | Latest model performance metrics.         |
-| `vw_latest_anomalies`         | Latest detected anomalies.                |
+| View | Purpose |
+| --- | --- |
+| `vw_daily_radiation_summary` | daily radiation summary |
+| `vw_hourly_radiation_summary` | hourly radiation summary |
+| `vw_location_anomaly_summary` | anomaly summary by location and sensor |
+| `vw_model_performance` | latest model performance values |
+| `vw_latest_anomalies` | latest detected anomalies |
 
-## Data Science Requirements
+## Machine learning part
 
-The project includes the following data science steps:
+The ML part follows a standard workflow:
 
-1. Data import from external CSV / ZIP files.
-2. Raw data storage.
-3. Data cleaning.
-4. Missing value handling.
-5. Feature engineering.
-6. Normalization with `StandardScaler`.
-7. Machine learning anomaly detection.
-8. Chronological train/test split.
-9. Model evaluation.
-10. Report generation.
-11. Dashboard visualization.
+1. load data
+2. clean data
+3. create features
+4. split data chronologically
+5. train models
+6. predict anomalies
+7. calculate metrics
+8. store results
+9. show results in the dashboard
 
-## Dimensionality Reduction Note
+Because the data is time-series based, the split is chronological:
 
-Dimensionality reduction was considered through correlation analysis.
+```text
+first 70%  -> train
+last 30%   -> test
+```
 
-Since the feature set is small and every feature has a clear time-series meaning, PCA was not applied in the final prototype. This decision keeps the model interpretable and suitable for a radiation monitoring dashboard.
+This avoids using future measurements during training.
 
-## Real Data Note
+## Implemented models
 
-The current version uses mock radiation measurements. The system is prepared for real radiation data because it supports CSV / ZIP upload, schema mapping, raw storage, cleaning and feature generation.
+### Unsupervised models
 
-If real unlabeled radiation data is imported, the system can still detect anomalies in unsupervised mode. If labels are available, supervised evaluation metrics can also be calculated.
+| Model | Note |
+| --- | --- |
+| Isolation Forest | isolation-based anomaly detection |
+| Local Outlier Factor | local density based method |
+| One-Class SVM | boundary around normal data |
+| DBSCAN | clustering baseline |
+| K-Means Distance | distance from nearest cluster center |
+| Gaussian Mixture Model | probability density based method |
+| PCA Reconstruction Error | reconstruction error based method |
+| HBOS | histogram-based scoring |
+| ECOD | empirical distribution based scoring |
+
+### Supervised models
+
+| Model | Note |
+| --- | --- |
+| Logistic Regression | simple linear baseline |
+| Decision Tree | interpretable classifier |
+| Random Forest | ensemble classifier |
+| Gradient Boosting | boosting classifier |
+| KNN Classifier | distance-based classifier |
+
+## Evaluation modes
+
+The project uses three modes.
+
+| Mode | Meaning |
+| --- | --- |
+| `labeled` | unsupervised model trained without labels, evaluated with labels after prediction |
+| `supervised` | supervised model trained and evaluated with labels |
+| `unsupervised` | unlabeled data, only anomaly statistics are shown |
+
+For labeled and supervised modes, the system calculates:
+
+- accuracy
+- precision
+- recall
+- F1-score
+- ROC-AUC
+- PR-AUC
+- FPR
+- FNR
+- confusion matrix values
+- training time
+- prediction time
+
+For unlabeled data, these metrics are not calculated because there is no ground-truth label.
+
+## Decision support framework
+
+The decision support part is based on model outputs. It helps the user understand what the model detected and how models compare.
+
+It includes:
+
+- anomaly status labels
+- threshold preview
+- model comparison
+- metric tables
+- confusion matrix interpretation
+- ROC and PR curve support
+- dashboard summaries
+- report-ready results
+
+The GenAI part of the thesis is connected to this explanation and decision-support layer. The actual ML models remain traditional models trained through the implemented ML scripts.
 
 ## Conclusion
 
-The project satisfies the analytical and data science requirements through a complete pipeline:
+The project covers the required data and ML flow for an academic prototype:
 
 ```text
-External data source
-+ PostgreSQL analytical storage
+external data source
++ PostgreSQL storage
 + ELT processing
-+ data cleaning
 + feature engineering
-+ ML anomaly detection
-+ train/test evaluation
++ traditional ML models
++ model evaluation
 + analytical views
 + dashboard visualization
++ decision support framework
 ```
-
-This makes the project suitable as a prototype analytical system for radiation monitoring and anomaly detection.

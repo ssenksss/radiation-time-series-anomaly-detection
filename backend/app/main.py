@@ -46,6 +46,7 @@ def health_check():
             "/anomalies",
             "/summary",
             "/model-info",
+            "/model-curves",
             "/settings",
             "/settings/threshold",
             "/datasets",

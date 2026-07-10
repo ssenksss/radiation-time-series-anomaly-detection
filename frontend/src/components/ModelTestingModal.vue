@@ -1,7 +1,15 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { getModelInfo } from '../services/api'
-import type { AvailableModel, ModelComparisonItem, ModelInfo, ModelCategory } from '../types/api'
+import { getModelCurves, getModelInfo } from '../services/api'
+import type {
+  AvailableModel,
+  ModelCategory,
+  ModelComparisonItem,
+  ModelCurveItem,
+  ModelCurvesResponse,
+  ModelInfo,
+} from '../types/api'
+import ModelCurveChart from './ModelCurveChart.vue'
 
 const props = defineProps<{
   isOpen: boolean
@@ -50,10 +58,16 @@ const selectedCategory = ref<ModelCategory>('unsupervised')
 const isLoading = ref(false)
 const errorMessage = ref('')
 
+const showAllMetrics = ref(false)
+const showCurves = ref(false)
+const isCurvesLoading = ref(false)
+const curvesErrorMessage = ref('')
+const curvesInfo = ref<ModelCurvesResponse | null>(null)
+
 const availableModels = computed(() => {
   return modelInfo.value?.availableModels?.length
-      ? modelInfo.value.availableModels
-      : fallbackModels
+    ? modelInfo.value.availableModels
+    : fallbackModels
 })
 
 const datasetHasLabels = computed(() => {
@@ -61,15 +75,15 @@ const datasetHasLabels = computed(() => {
 })
 
 const unsupervisedModels = computed(() =>
-    availableModels.value.filter((model) => model.category === 'unsupervised'),
+  availableModels.value.filter((model) => model.category === 'unsupervised'),
 )
 
 const supervisedModels = computed(() =>
-    availableModels.value.filter((model) => model.category === 'supervised'),
+  availableModels.value.filter((model) => model.category === 'supervised'),
 )
 
 const futureModels = computed(() =>
-    availableModels.value.filter((model) => model.category === 'future'),
+  availableModels.value.filter((model) => model.category === 'future'),
 )
 
 const categoryTabs = computed(() => [
@@ -86,8 +100,8 @@ const categoryTabs = computed(() => [
     count: supervisedModels.value.length,
     disabled: !datasetHasLabels.value,
     hint: datasetHasLabels.value
-        ? 'Available because this dataset contains is_anomaly'
-        : 'Requires is_anomaly labels',
+      ? 'Available because this dataset contains is_anomaly'
+      : 'Requires is_anomaly labels',
   },
 ])
 
@@ -106,6 +120,31 @@ const selectableModels = computed(() => {
 const comparisonItems = computed<ModelComparisonItem[]>(() => {
   return modelInfo.value?.comparison ?? []
 })
+
+const allModelResults = computed<ModelComparisonItem[]>(() => {
+  return modelInfo.value?.allModelResults?.filter((item) => item.category !== 'future') ?? []
+})
+
+const fullModelRows = computed(() =>
+  allModelResults.value.map((item) => ({
+    id: item.id,
+    model: item.model,
+    category: formatCategory(item.category),
+    evaluation: formatEvaluationMode(item.evaluationMode),
+    accuracy: formatPercent(item.accuracy),
+    precision: formatMetric(item.precision),
+    recall: formatMetric(item.recall),
+    f1Score: formatMetric(item.f1Score),
+    rocAuc: formatMetric(item.rocAuc),
+    prAuc: formatMetric(item.prAuc),
+    fpr: formatMetric(item.fpr),
+    fnr: formatMetric(item.fnr),
+    anomalies: formatNumber(item.totalAnomalies),
+    trainingTime: formatSeconds(item.trainingTimeSeconds),
+    status: item.status,
+    active: item.active,
+  })),
+)
 
 const modelAResult = computed(() => comparisonItems.value[0] ?? null)
 const modelBResult = computed(() => comparisonItems.value[1] ?? null)
@@ -134,7 +173,10 @@ const activeModelName = computed(() => {
 const primaryMetricLabel = computed(() => {
   if (isUnsupervised.value && !datasetHasLabels.value) return 'Model Score'
   if (isUnsupervised.value && datasetHasLabels.value) return 'Accuracy'
-  if (modelInfo.value?.evaluationMode === 'supervised') return 'Accuracy'
+  if (
+  modelInfo.value?.evaluationMode === 'supervised' ||
+  modelInfo.value?.evaluationMode === 'labeled'
+) return 'Accuracy'
 
   return 'Model Status'
 })
@@ -142,9 +184,9 @@ const primaryMetricLabel = computed(() => {
 const primaryMetricValue = computed(() => {
   if (isUnsupervised.value && !datasetHasLabels.value) {
     return modelAResult.value?.modelScore ??
-        modelAResult.value?.score ??
-        modelInfo.value?.modelScore ??
-        null
+      modelAResult.value?.score ??
+      modelInfo.value?.modelScore ??
+      null
   }
 
   return modelAResult.value?.accuracy ?? modelInfo.value?.accuracy ?? null
@@ -159,93 +201,37 @@ const progressWidth = computed(() => {
 const hasResults = computed(() => comparisonItems.value.length > 0)
 
 const bars = computed(() =>
-    comparisonItems.value.map((item, index) => {
-      const useModelScore = item.evaluationMode === 'unsupervised' && !datasetHasLabels.value
-      const displayScore = useModelScore
-          ? item.modelScore ?? item.score
-          : item.accuracy ?? item.score
+  comparisonItems.value.map((item, index) => {
+    const useModelScore = item.evaluationMode === 'unsupervised' && !datasetHasLabels.value
+    const displayScore = useModelScore
+      ? item.modelScore ?? item.score
+      : item.accuracy ?? item.score
 
-      const score = Number(displayScore ?? 0)
-      const safeScore = Math.max(0, Math.min(100, score))
-      const isPending = item.status.toLowerCase().includes('pending')
+    const score = Number(displayScore ?? 0)
+    const safeScore = Math.max(0, Math.min(100, score))
+    const isPending = item.status.toLowerCase().includes('pending')
 
-      return {
-        label: item.model,
-        value: isPending ? 'Pending' : formatPercent(displayScore),
-        height: isPending ? '22px' : `${Math.max(36, Math.round(safeScore * 0.9))}px`,
-        active: index === 0,
-        pending: isPending,
-        status: item.status,
-        subtitle: buildBarSubtitle(item),
-      }
-    }),
+    return {
+      label: item.model,
+      value: isPending ? 'Pending' : formatPercent(displayScore),
+      height: isPending ? '22px' : `${Math.max(36, Math.round(safeScore * 0.9))}px`,
+      active: index === 0,
+      pending: isPending,
+      status: item.status,
+      subtitle: buildBarSubtitle(item),
+    }
+  }),
 )
 
 const comparisonRows = computed(() => {
-  const rows = []
+  const rows: Array<{ metric: string; modelA: string; modelB: string }> = []
 
   if (isUnsupervised.value && !datasetHasLabels.value) {
     rows.push(
-        {
-          metric: 'Model Score',
-          modelA: formatPercent(modelAResult.value?.modelScore ?? modelAResult.value?.score),
-          modelB: formatPercent(modelBResult.value?.modelScore ?? modelBResult.value?.score),
-        },
-        {
-          metric: 'Detected Anomalies',
-          modelA: formatNumber(modelAResult.value?.totalAnomalies),
-          modelB: formatNumber(modelBResult.value?.totalAnomalies),
-        },
-        {
-          metric: 'Total Records',
-          modelA: formatNumber(modelAResult.value?.totalRecords),
-          modelB: formatNumber(modelBResult.value?.totalRecords),
-        },
-        {
-          metric: 'Anomaly Rate',
-          modelA: formatPercent(modelAResult.value?.anomalyRate, 3),
-          modelB: formatPercent(modelBResult.value?.anomalyRate, 3),
-        },
-        {
-          metric: 'Evaluation',
-          modelA: 'Unsupervised',
-          modelB: 'Unsupervised',
-        },
-        {
-          metric: 'Status',
-          modelA: modelAResult.value?.status ?? 'N/A',
-          modelB: modelBResult.value?.status ?? 'N/A',
-        },
-    )
-
-    return rows
-  }
-
-  rows.push(
       {
-        metric: 'Accuracy',
-        modelA: formatPercent(modelAResult.value?.accuracy),
-        modelB: formatPercent(modelBResult.value?.accuracy),
-      },
-      {
-        metric: 'Precision',
-        modelA: formatMetric(modelAResult.value?.precision),
-        modelB: formatMetric(modelBResult.value?.precision),
-      },
-      {
-        metric: 'Recall',
-        modelA: formatMetric(modelAResult.value?.recall),
-        modelB: formatMetric(modelBResult.value?.recall),
-      },
-      {
-        metric: 'FPR',
-        modelA: formatMetric(modelAResult.value?.fpr),
-        modelB: formatMetric(modelBResult.value?.fpr),
-      },
-      {
-        metric: 'FNR',
-        modelA: formatMetric(modelAResult.value?.fnr),
-        modelB: formatMetric(modelBResult.value?.fnr),
+        metric: 'Model Score',
+        modelA: formatPercent(modelAResult.value?.modelScore ?? modelAResult.value?.score),
+        modelB: formatPercent(modelBResult.value?.modelScore ?? modelBResult.value?.score),
       },
       {
         metric: 'Detected Anomalies',
@@ -253,18 +239,209 @@ const comparisonRows = computed(() => {
         modelB: formatNumber(modelBResult.value?.totalAnomalies),
       },
       {
-        metric: 'Category',
-        modelA: formatCategory(modelAResult.value?.category),
-        modelB: formatCategory(modelBResult.value?.category),
+        metric: 'Total Records',
+        modelA: formatNumber(modelAResult.value?.totalRecords),
+        modelB: formatNumber(modelBResult.value?.totalRecords),
+      },
+      {
+        metric: 'Anomaly Rate',
+        modelA: formatPercent(modelAResult.value?.anomalyRate, 3),
+        modelB: formatPercent(modelBResult.value?.anomalyRate, 3),
+      },
+      {
+        metric: 'Score Mean',
+        modelA: formatMetric(modelAResult.value?.scoreMean),
+        modelB: formatMetric(modelBResult.value?.scoreMean),
+      },
+      {
+        metric: 'Score Std',
+        modelA: formatMetric(modelAResult.value?.scoreStd),
+        modelB: formatMetric(modelBResult.value?.scoreStd),
+      },
+      {
+        metric: 'Score Variance',
+        modelA: formatMetric(modelAResult.value?.scoreVariance),
+        modelB: formatMetric(modelBResult.value?.scoreVariance),
+      },
+      {
+        metric: 'Training Time',
+        modelA: formatSeconds(modelAResult.value?.trainingTimeSeconds),
+        modelB: formatSeconds(modelBResult.value?.trainingTimeSeconds),
+      },
+      {
+        metric: 'Prediction Time',
+        modelA: formatSeconds(modelAResult.value?.predictionTimeSeconds),
+        modelB: formatSeconds(modelBResult.value?.predictionTimeSeconds),
+      },
+      {
+        metric: 'Evaluation',
+        modelA: 'Unlabeled anomaly detection',
+        modelB: 'Unlabeled anomaly detection',
       },
       {
         metric: 'Status',
         modelA: modelAResult.value?.status ?? 'N/A',
         modelB: modelBResult.value?.status ?? 'N/A',
       },
+    )
+
+    return rows
+  }
+
+  const isTestBasedComparison =
+    modelAResult.value?.evaluationMode === 'labeled' ||
+    modelAResult.value?.evaluationMode === 'supervised' ||
+    modelBResult.value?.evaluationMode === 'labeled' ||
+    modelBResult.value?.evaluationMode === 'supervised' ||
+    modelAResult.value?.category === 'supervised' ||
+    modelBResult.value?.category === 'supervised'
+
+  const trueAnomaliesLabel = isTestBasedComparison
+    ? 'True Anomalies (Test)'
+    : 'True Anomalies'
+
+  const detectedAnomaliesLabel = isTestBasedComparison
+    ? 'Predicted Anomalies (Test)'
+    : 'Detected Anomalies'
+
+  const recordsLabel = isTestBasedComparison
+    ? 'Test Records'
+    : 'Total Records'
+
+  rows.push(
+    {
+      metric: 'Accuracy',
+      modelA: formatPercent(modelAResult.value?.accuracy),
+      modelB: formatPercent(modelBResult.value?.accuracy),
+    },
+    {
+      metric: 'Precision',
+      modelA: formatMetric(modelAResult.value?.precision),
+      modelB: formatMetric(modelBResult.value?.precision),
+    },
+    {
+      metric: 'Recall',
+      modelA: formatMetric(modelAResult.value?.recall),
+      modelB: formatMetric(modelBResult.value?.recall),
+    },
+    {
+      metric: 'F1-score',
+      modelA: formatMetric(modelAResult.value?.f1Score),
+      modelB: formatMetric(modelBResult.value?.f1Score),
+    },
+    {
+      metric: 'ROC-AUC',
+      modelA: formatMetric(modelAResult.value?.rocAuc),
+      modelB: formatMetric(modelBResult.value?.rocAuc),
+    },
+    {
+      metric: 'PR-AUC',
+      modelA: formatMetric(modelAResult.value?.prAuc),
+      modelB: formatMetric(modelBResult.value?.prAuc),
+    },
+    {
+      metric: 'FPR',
+      modelA: formatMetric(modelAResult.value?.fpr),
+      modelB: formatMetric(modelBResult.value?.fpr),
+    },
+    {
+      metric: 'FNR',
+      modelA: formatMetric(modelAResult.value?.fnr),
+      modelB: formatMetric(modelBResult.value?.fnr),
+    },
+    {
+      metric: 'TP / TN',
+      modelA: `${formatNumber(modelAResult.value?.tp)} / ${formatNumber(modelAResult.value?.tn)}`,
+      modelB: `${formatNumber(modelBResult.value?.tp)} / ${formatNumber(modelBResult.value?.tn)}`,
+    },
+    {
+      metric: 'FP / FN',
+      modelA: `${formatNumber(modelAResult.value?.fp)} / ${formatNumber(modelAResult.value?.fn)}`,
+      modelB: `${formatNumber(modelBResult.value?.fp)} / ${formatNumber(modelBResult.value?.fn)}`,
+    },
+    {
+      metric: trueAnomaliesLabel,
+      modelA: formatNumber(modelAResult.value?.trueAnomalies),
+      modelB: formatNumber(modelBResult.value?.trueAnomalies),
+    },
+    {
+      metric: detectedAnomaliesLabel,
+      modelA: formatNumber(modelAResult.value?.totalAnomalies),
+      modelB: formatNumber(modelBResult.value?.totalAnomalies),
+    },
+    {
+      metric: recordsLabel,
+      modelA: formatNumber(modelAResult.value?.totalRecords),
+      modelB: formatNumber(modelBResult.value?.totalRecords),
+    },
+    {
+      metric: 'Score Std',
+      modelA: formatMetric(modelAResult.value?.scoreStd),
+      modelB: formatMetric(modelBResult.value?.scoreStd),
+    },
+    {
+      metric: 'Score Variance',
+      modelA: formatMetric(modelAResult.value?.scoreVariance),
+      modelB: formatMetric(modelBResult.value?.scoreVariance),
+    },
+    {
+      metric: 'Training Time',
+      modelA: formatSeconds(modelAResult.value?.trainingTimeSeconds),
+      modelB: formatSeconds(modelBResult.value?.trainingTimeSeconds),
+    },
+    {
+      metric: 'Prediction Time',
+      modelA: formatSeconds(modelAResult.value?.predictionTimeSeconds),
+      modelB: formatSeconds(modelBResult.value?.predictionTimeSeconds),
+    },
+    {
+      metric: 'Category',
+      modelA: formatCategory(modelAResult.value?.category),
+      modelB: formatCategory(modelBResult.value?.category),
+    },
+    {
+      metric: 'Status',
+      modelA: modelAResult.value?.status ?? 'N/A',
+      modelB: modelBResult.value?.status ?? 'N/A',
+    },
   )
 
   return rows
+})
+
+const compactMetricLabels = computed(() => {
+  if (isUnsupervised.value && !datasetHasLabels.value) {
+    return new Set([
+      'Model Score',
+      'Detected Anomalies',
+      'Anomaly Rate',
+      'Training Time',
+      'Status',
+    ])
+  }
+
+  return new Set([
+    'Accuracy',
+    'Precision',
+    'Recall',
+    'F1-score',
+    'ROC-AUC',
+    'PR-AUC',
+    'Training Time',
+    'Status',
+  ])
+})
+
+const visibleComparisonRows = computed(() => {
+  if (showAllMetrics.value) {
+    return comparisonRows.value
+  }
+
+  return comparisonRows.value.filter((row) => compactMetricLabels.value.has(row.metric))
+})
+
+const metricsToggleLabel = computed(() => {
+  return showAllMetrics.value ? 'Show fewer metrics' : 'Show all metrics'
 })
 
 const evaluationNote = computed(() => {
@@ -273,14 +450,80 @@ const evaluationNote = computed(() => {
   }
 
   if (selectedCategory.value === 'supervised') {
-    return 'This dataset contains is_anomaly labels, so supervised models can be trained and evaluated with Accuracy, Precision, Recall, FPR and FNR.'
+    return 'This dataset contains is_anomaly labels, so supervised models can be trained and evaluated with Accuracy, Precision, Recall, F1-score, ROC-AUC, PR-AUC, FPR, FNR and confusion matrix values.'
   }
 
   if (datasetHasLabels.value) {
-    return 'This labeled dataset allows objective evaluation of unsupervised anomaly detectors using Accuracy, Precision, Recall, FPR and FNR.'
+    return 'This labeled dataset allows objective evaluation of unsupervised anomaly detectors on the chronological test split using Accuracy, Precision, Recall, F1-score, ROC-AUC, PR-AUC, FPR, FNR and confusion matrix values.'
   }
 
-  return 'Real unlabeled datasets do not contain manual anomaly labels, so the app shows Model Score, detected anomalies and anomaly rate.'
+  return 'Real unlabeled datasets do not contain manual anomaly labels, so the app shows Model Score, detected anomalies, anomaly rate and anomaly score statistics.'
+})
+
+const resultInterpretationNote = computed(() => {
+  if (!datasetHasLabels.value) {
+    return 'Unlabeled real datasets are evaluated through detected anomalies, anomaly rate and score statistics because there is no verified ground truth label.'
+  }
+
+  if (selectedCategory.value === 'supervised') {
+    return 'Very high supervised scores are expected on this controlled labeled dataset. They confirm that the pipeline works with clear labels, but they should not be read as guaranteed real-world performance.'
+  }
+
+  return 'For unsupervised models, labels are used only after prediction, so the metrics show how well each detector matched the known test labels without using them during training.'
+})
+
+const dbscanNote = computed(() => {
+  const selectedNames = [modelAName.value, modelBName.value]
+  const tableContainsDbscan = fullModelRows.value.some((row) => row.model === 'DBSCAN')
+
+  if (!selectedNames.includes('DBSCAN') && !tableContainsDbscan) return ''
+
+  return 'DBSCAN is shown as a clustering baseline. It marks low-density points as noise, but it does not provide the same reusable train/predict workflow as models prepared for future real-time records.'
+})
+
+const curveA = computed<ModelCurveItem | null>(() => curvesInfo.value?.curves?.[0] ?? null)
+const curveB = computed<ModelCurveItem | null>(() => curvesInfo.value?.curves?.[1] ?? null)
+
+const canShowCurves = computed(() => datasetHasLabels.value)
+
+const curvesToggleLabel = computed(() => {
+  return showCurves.value ? 'Hide curves' : 'Show ROC / PR curves'
+})
+
+const curvesStatusText = computed(() => {
+  if (!datasetHasLabels.value) {
+    return 'ROC and Precision-Recall curves require original anomaly labels.'
+  }
+
+  if (selectedCategory.value === 'supervised') {
+    return 'Curves for supervised models are calculated on the chronological test split.'
+  }
+
+  return 'Curves are calculated on the chronological test split.'
+})
+
+const rocSubtitle = computed(() => {
+  const a = curveA.value?.rocAuc !== null && curveA.value?.rocAuc !== undefined
+    ? `AUC ${Number(curveA.value.rocAuc).toFixed(3)}`
+    : 'AUC N/A'
+
+  const b = curveB.value?.rocAuc !== null && curveB.value?.rocAuc !== undefined
+    ? `AUC ${Number(curveB.value.rocAuc).toFixed(3)}`
+    : 'AUC N/A'
+
+  return `${modelAName.value}: ${a} · ${modelBName.value}: ${b}`
+})
+
+const prSubtitle = computed(() => {
+  const a = curveA.value?.prAuc !== null && curveA.value?.prAuc !== undefined
+    ? `AUC ${Number(curveA.value.prAuc).toFixed(3)}`
+    : 'AUC N/A'
+
+  const b = curveB.value?.prAuc !== null && curveB.value?.prAuc !== undefined
+    ? `AUC ${Number(curveB.value.prAuc).toFixed(3)}`
+    : 'AUC N/A'
+
+  return `${modelAName.value}: ${a} · ${modelBName.value}: ${b}`
 })
 
 function getModelName(modelId: string) {
@@ -332,6 +575,15 @@ function formatCategory(category: ModelComparisonItem['category'] | undefined) {
   return 'N/A'
 }
 
+function formatEvaluationMode(mode: ModelComparisonItem['evaluationMode'] | undefined) {
+  if (mode === 'labeled') return 'Labeled test'
+  if (mode === 'supervised') return 'Supervised test'
+  if (mode === 'unsupervised') return 'Unlabeled detection'
+  if (mode === 'pending') return 'Pending'
+
+  return 'N/A'
+}
+
 function formatPercent(value: number | null | undefined, digits = 1) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) return 'N/A'
 
@@ -339,7 +591,7 @@ function formatPercent(value: number | null | undefined, digits = 1) {
 }
 
 function formatMetric(value: number | null | undefined) {
-  if (value === null || value === undefined) return 'N/A'
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return 'N/A'
 
   return Number(value).toFixed(3)
 }
@@ -348,6 +600,19 @@ function formatNumber(value: number | null | undefined) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) return 'N/A'
 
   return Number(value).toLocaleString()
+}
+
+function formatSeconds(value: number | null | undefined) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return 'N/A'
+
+  return `${Number(value).toFixed(4)}s`
+}
+
+function resetCurves() {
+  showCurves.value = false
+  isCurvesLoading.value = false
+  curvesErrorMessage.value = ''
+  curvesInfo.value = null
 }
 
 function syncCategoryFromModel(modelId: string) {
@@ -374,28 +639,36 @@ function ensureValidSelection() {
   }
 
   if (
-      !selectedB ||
-      selectedB.category !== selectedCategory.value ||
-      !isModelEnabled(selectedB) ||
-      selectedModelB.value === selectedModelA.value
+    !selectedB ||
+    selectedB.category !== selectedCategory.value ||
+    !isModelEnabled(selectedB) ||
+    selectedModelB.value === selectedModelA.value
   ) {
     selectedModelB.value = enabled.find((model) => model.id !== selectedModelA.value)?.id ??
-        enabled[0]?.id ??
-        'hbos'
+      enabled[0]?.id ??
+      'hbos'
   }
 }
 
-async function loadModelInfo() {
+async function loadModelInfo(useCurrentSelection = true) {
   try {
     isLoading.value = true
     errorMessage.value = ''
 
-    const response = await getModelInfo(selectedModelA.value, selectedModelB.value)
+    const response = useCurrentSelection
+      ? await getModelInfo(selectedModelA.value, selectedModelB.value)
+      : await getModelInfo()
 
     modelInfo.value = response
 
-    selectedModelA.value = response.selectedModels.modelA
-    selectedModelB.value = response.selectedModels.modelB
+    selectedModelA.value =
+      response.selectedModels?.modelA ??
+      response.activeModelId ??
+      selectedModelA.value
+
+    selectedModelB.value =
+      response.selectedModels?.modelB ??
+      selectedModelB.value
 
     syncCategoryFromModel(selectedModelA.value)
     ensureValidSelection()
@@ -409,15 +682,45 @@ async function loadModelInfo() {
   }
 }
 
+async function loadModelCurves() {
+  if (!canShowCurves.value) return
+
+  try {
+    isCurvesLoading.value = true
+    curvesErrorMessage.value = ''
+
+    curvesInfo.value = await getModelCurves(selectedModelA.value, selectedModelB.value)
+  } catch (error) {
+    console.error(error)
+    curvesErrorMessage.value = 'Evaluation curves could not be loaded.'
+  } finally {
+    isCurvesLoading.value = false
+  }
+}
+
+async function toggleCurves() {
+  if (!canShowCurves.value) return
+
+  showCurves.value = !showCurves.value
+
+  if (showCurves.value && !curvesInfo.value) {
+    await loadModelCurves()
+  }
+}
+
 function handleCategoryChange(category: ModelCategory) {
   if (category === 'supervised' && !datasetHasLabels.value) return
 
   selectedCategory.value = category
+  showAllMetrics.value = false
+  resetCurves()
   ensureValidSelection()
   loadModelInfo()
 }
 
 function handleModelAChange() {
+  showAllMetrics.value = false
+  resetCurves()
   ensureValidSelection()
 
   if (selectedModelA.value === selectedModelB.value) {
@@ -429,6 +732,8 @@ function handleModelAChange() {
 }
 
 function handleModelBChange() {
+  showAllMetrics.value = false
+  resetCurves()
   ensureValidSelection()
 
   if (selectedModelA.value === selectedModelB.value) {
@@ -440,13 +745,15 @@ function handleModelBChange() {
 }
 
 watch(
-    () => props.isOpen,
-    (isOpen) => {
-      if (isOpen) {
-        loadModelInfo()
-      }
-    },
-    { immediate: true },
+  () => props.isOpen,
+  (isOpen) => {
+    if (isOpen) {
+      showAllMetrics.value = false
+      resetCurves()
+      loadModelInfo(false)
+    }
+  },
+  { immediate: true },
 )
 </script>
 
@@ -459,7 +766,7 @@ watch(
             <p class="modal-card__eyebrow">Model Testing</p>
             <h2>Compare detection models</h2>
             <p class="modal-card__subtitle">
-              Compare 10 unsupervised anomaly detectors and 5 supervised classifiers when labels are available.
+              Compare 9 unsupervised anomaly detectors and 5 supervised classifiers when labels are available.
             </p>
           </div>
 
@@ -480,16 +787,16 @@ watch(
 
         <div class="model-category-tabs">
           <button
-              v-for="tab in categoryTabs"
-              :key="tab.id"
-              class="category-tab"
-              :class="{
+            v-for="tab in categoryTabs"
+            :key="tab.id"
+            class="category-tab"
+            :class="{
               'category-tab--active': selectedCategory === tab.id,
               'category-tab--disabled': tab.disabled,
             }"
-              type="button"
-              :disabled="tab.disabled || isLoading"
-              @click="handleCategoryChange(tab.id)"
+            type="button"
+            :disabled="tab.disabled || isLoading"
+            @click="handleCategoryChange(tab.id)"
           >
             <span>{{ tab.label }}</span>
             <strong>{{ tab.count }}</strong>
@@ -505,24 +812,24 @@ watch(
             </div>
 
             <select
-                v-model="selectedModelA"
-                class="model-select"
-                :disabled="isLoading"
-                @change="handleModelAChange"
+              v-model="selectedModelA"
+              class="model-select"
+              :disabled="isLoading"
+              @change="handleModelAChange"
             >
               <option
-                  v-for="model in categoryModels"
-                  :key="model.id"
-                  :value="model.id"
-                  :disabled="model.id === selectedModelB || !isModelEnabled(model)"
+                v-for="model in categoryModels"
+                :key="model.id"
+                :value="model.id"
+                :disabled="model.id === selectedModelB || !isModelEnabled(model)"
               >
                 {{ buildOptionLabel(model) }}
               </option>
             </select>
 
             <p
-                v-if="getModelById(selectedModelA)?.disabledReason"
-                class="select-hint"
+              v-if="getModelById(selectedModelA)?.disabledReason"
+              class="select-hint"
             >
               {{ getModelById(selectedModelA)?.disabledReason }}
             </p>
@@ -537,24 +844,24 @@ watch(
             </div>
 
             <select
-                v-model="selectedModelB"
-                class="model-select"
-                :disabled="isLoading"
-                @change="handleModelBChange"
+              v-model="selectedModelB"
+              class="model-select"
+              :disabled="isLoading"
+              @change="handleModelBChange"
             >
               <option
-                  v-for="model in categoryModels"
-                  :key="model.id"
-                  :value="model.id"
-                  :disabled="model.id === selectedModelA || !isModelEnabled(model)"
+                v-for="model in categoryModels"
+                :key="model.id"
+                :value="model.id"
+                :disabled="model.id === selectedModelA || !isModelEnabled(model)"
               >
                 {{ buildOptionLabel(model) }}
               </option>
             </select>
 
             <p
-                v-if="getModelById(selectedModelB)?.disabledReason"
-                class="select-hint"
+              v-if="getModelById(selectedModelB)?.disabledReason"
+              class="select-hint"
             >
               {{ getModelById(selectedModelB)?.disabledReason }}
             </p>
@@ -573,110 +880,241 @@ watch(
           {{ errorMessage }}
         </div>
 
-        <div v-else class="modal-grid">
-          <div class="panel-block">
-            <div class="panel-block__top">
-              <div>
-                <span>{{ primaryMetricLabel }}</span>
-                <strong>{{ activeModelName }}</strong>
+        <template v-else>
+          <div class="modal-grid">
+            <div class="panel-block">
+              <div class="panel-block__top">
+                <div>
+                  <span>{{ primaryMetricLabel }}</span>
+                  <strong>{{ activeModelName }}</strong>
+                </div>
+
+                <div class="accuracy-chip">
+                  {{ formatPercent(primaryMetricValue) }}
+                </div>
               </div>
 
-              <div class="accuracy-chip">
-                {{ formatPercent(primaryMetricValue) }}
+              <div class="progress-bar">
+                <div class="progress-bar__fill" :style="{ width: progressWidth }"></div>
               </div>
-            </div>
 
-            <div class="progress-bar">
-              <div class="progress-bar__fill" :style="{ width: progressWidth }"></div>
-            </div>
-
-            <div v-if="bars.length" class="mini-bars">
-              <div
+              <div v-if="bars.length" class="mini-bars">
+                <div
                   v-for="bar in bars"
                   :key="bar.label"
                   class="mini-bars__item"
-              >
-                <span class="mini-bars__percent">{{ bar.value }}</span>
+                >
+                  <span class="mini-bars__percent">{{ bar.value }}</span>
 
-                <div
+                  <div
                     class="mini-bars__bar"
                     :class="{
-                    'mini-bars__bar--active': bar.active,
-                    'mini-bars__bar--pending': bar.pending,
-                  }"
+                      'mini-bars__bar--active': bar.active,
+                      'mini-bars__bar--pending': bar.pending,
+                    }"
                     :style="{ height: bar.height }"
-                ></div>
+                  ></div>
 
-                <span class="mini-bars__label">{{ bar.label }}</span>
-                <span class="mini-bars__subtitle">{{ bar.subtitle }}</span>
-                <span
+                  <span class="mini-bars__label">{{ bar.label }}</span>
+                  <span class="mini-bars__subtitle">{{ bar.subtitle }}</span>
+                  <span
                     class="model-status"
                     :class="{ 'model-status--pending': bar.pending }"
+                  >
+                    {{ bar.status }}
+                  </span>
+                </div>
+              </div>
+
+              <div v-else class="empty-state">
+                No model comparison data available.
+              </div>
+
+              <p class="model-source">
+                {{ evaluationNote }}
+              </p>
+            </div>
+
+            <div class="panel-block">
+              <div class="metrics-header metrics-header--row">
+                <div>
+                  <h3>Model Metrics</h3>
+                  <p>{{ modelAName }} compared with {{ modelBName }}</p>
+                </div>
+
+                <button
+                  class="small-action-button"
+                  type="button"
+                  @click="showAllMetrics = !showAllMetrics"
                 >
-                  {{ bar.status }}
-                </span>
-              </div>
-            </div>
-
-            <div v-else class="empty-state">
-              No model comparison data available.
-            </div>
-
-            <p class="model-source">
-              {{ evaluationNote }}
-            </p>
-          </div>
-
-          <div class="panel-block">
-            <div class="metrics-header">
-              <div>
-                <h3>Model Metrics</h3>
-                <p>{{ modelAName }} compared with {{ modelBName }}</p>
-              </div>
-            </div>
-
-            <div v-if="hasResults" class="comparison-table">
-              <div class="comparison-table__head comparison-table__head--three">
-                <span>Metric</span>
-                <span>{{ modelAName }}</span>
-                <span>{{ modelBName }}</span>
+                  {{ metricsToggleLabel }}
+                </button>
               </div>
 
-              <div
-                  v-for="row in comparisonRows"
+              <div v-if="hasResults" class="comparison-table">
+                <div class="comparison-table__head comparison-table__head--three">
+                  <span>Metric</span>
+                  <span>{{ modelAName }}</span>
+                  <span>{{ modelBName }}</span>
+                </div>
+
+                <div
+                  v-for="row in visibleComparisonRows"
                   :key="row.metric"
                   class="comparison-table__row comparison-table__row--three"
-              >
-                <span>{{ row.metric }}</span>
-                <span class="accent">{{ row.modelA }}</span>
-                <span class="accent accent--secondary">{{ row.modelB }}</span>
+                >
+                  <span>{{ row.metric }}</span>
+                  <span class="accent">{{ row.modelA }}</span>
+                  <span class="accent accent--secondary">{{ row.modelB }}</span>
+                </div>
+              </div>
+
+              <div v-else class="empty-state">
+                Select two models to compare their metrics.
               </div>
             </div>
+          </div>
 
-            <div v-else class="empty-state">
-              Select two models to compare their metrics.
+
+          <div class="curves-section">
+            <div class="curves-section__header">
+              <div>
+                <h3>Evaluation curves</h3>
+                <p>{{ curvesStatusText }}</p>
+              </div>
+
+              <button
+                class="small-action-button"
+                type="button"
+                :disabled="!canShowCurves || isCurvesLoading"
+                @click="toggleCurves"
+              >
+                {{ isCurvesLoading ? 'Loading curves...' : curvesToggleLabel }}
+              </button>
+            </div>
+
+            <div v-if="showCurves" class="curves-content">
+              <div v-if="isCurvesLoading" class="empty-state">
+                Loading ROC and Precision-Recall curves...
+              </div>
+
+              <div v-else-if="curvesErrorMessage" class="empty-state empty-state--error">
+                {{ curvesErrorMessage }}
+              </div>
+
+              <div v-else-if="curvesInfo?.message" class="empty-state">
+                {{ curvesInfo.message }}
+              </div>
+
+              <div v-else class="curve-grid">
+                <ModelCurveChart
+                  title="ROC Curve"
+                  :subtitle="rocSubtitle"
+                  x-label="False Positive Rate"
+                  y-label="True Positive Rate"
+                  :model-a-name="curveA?.model ?? modelAName"
+                  :model-b-name="curveB?.model ?? modelBName"
+                  :model-a-points="curveA?.rocCurve ?? []"
+                  :model-b-points="curveB?.rocCurve ?? []"
+                />
+
+                <ModelCurveChart
+                  title="Precision-Recall Curve"
+                  :subtitle="prSubtitle"
+                  x-label="Recall"
+                  y-label="Precision"
+                  :model-a-name="curveA?.model ?? modelAName"
+                  :model-b-name="curveB?.model ?? modelBName"
+                  :model-a-points="curveA?.prCurve ?? []"
+                  :model-b-points="curveB?.prCurve ?? []"
+                />
+              </div>
             </div>
           </div>
-        </div>
+        </template>
 
         <div class="modal-footer">
           <button
-              class="action-button action-button--secondary"
-              type="button"
-              @click="emit('close')"
+            class="action-button action-button--secondary"
+            type="button"
+            @click="emit('close')"
           >
             Close
           </button>
 
           <button
-              class="action-button"
-              type="button"
-              :disabled="isLoading"
-              @click="loadModelInfo"
+            class="action-button"
+            type="button"
+            :disabled="isLoading"
+           @click="loadModelInfo()"
           >
             Compare Again
           </button>
         </div>
+
+
+        <div class="full-results-section">
+            <div class="curves-section__header">
+              <div>
+                <h3>Full Model Comparison</h3>
+                <p>All stored model results for the active dataset are shown in one table.</p>
+                <p class="model-source">{{ resultInterpretationNote }}</p>
+                <p v-if="dbscanNote" class="model-source">{{ dbscanNote }}</p>
+              </div>
+            </div>
+
+            <div v-if="fullModelRows.length" class="full-results-scroll">
+              <table class="full-results-table">
+                <thead>
+                  <tr>
+                    <th>Model</th>
+                    <th>Type</th>
+                    <th>Evaluation</th>
+                    <th>Accuracy</th>
+                    <th>Precision</th>
+                    <th>Recall</th>
+                    <th>F1</th>
+                    <th>ROC-AUC</th>
+                    <th>PR-AUC</th>
+                    <th>FPR</th>
+                    <th>FNR</th>
+                    <th>Anomalies</th>
+                    <th>Train</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  <tr
+                    v-for="row in fullModelRows"
+                    :key="row.id"
+                    :class="{ 'full-results-table__row--active': row.active }"
+                  >
+                    <td class="full-results-table__model">{{ row.model }}</td>
+                    <td>{{ row.category }}</td>
+                    <td>{{ row.evaluation }}</td>
+                    <td>{{ row.accuracy }}</td>
+                    <td>{{ row.precision }}</td>
+                    <td>{{ row.recall }}</td>
+                    <td>{{ row.f1Score }}</td>
+                    <td>{{ row.rocAuc }}</td>
+                    <td>{{ row.prAuc }}</td>
+                    <td>{{ row.fpr }}</td>
+                    <td>{{ row.fnr }}</td>
+                    <td>{{ row.anomalies }}</td>
+                    <td>{{ row.trainingTime }}</td>
+                    <td>
+                      <span class="status-pill">{{ row.status }}</span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div v-else class="empty-state">
+              No full model comparison table is available yet.
+            </div>
+          </div>
       </div>
     </div>
   </transition>
@@ -711,12 +1149,12 @@ watch(
   border-radius: 26px;
   border: 1px solid rgba(120, 151, 235, 0.14);
   background:
-      radial-gradient(circle at top right, rgba(76, 111, 255, 0.12), transparent 34%),
-      radial-gradient(circle at bottom left, rgba(143, 230, 198, 0.08), transparent 32%),
-      linear-gradient(180deg, rgba(12, 18, 35, 0.98), rgba(9, 14, 28, 0.99));
+    radial-gradient(circle at top right, rgba(76, 111, 255, 0.12), transparent 34%),
+    radial-gradient(circle at bottom left, rgba(143, 230, 198, 0.08), transparent 32%),
+    linear-gradient(180deg, rgba(12, 18, 35, 0.98), rgba(9, 14, 28, 0.99));
   box-shadow:
-      0 24px 70px rgba(0, 0, 0, 0.38),
-      inset 0 1px 0 rgba(255,255,255,0.04);
+    0 24px 70px rgba(0, 0, 0, 0.38),
+    inset 0 1px 0 rgba(255,255,255,0.04);
   padding: 22px;
   color: #eef4ff;
 }
@@ -867,7 +1305,7 @@ watch(
   border-radius: 18px;
   border: 1px solid rgba(120, 151, 235, 0.14);
   background:
-      linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.025));
+    linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.025));
   padding: 14px;
 }
 
@@ -953,11 +1391,12 @@ watch(
   gap: 16px;
 }
 
-.panel-block {
+.panel-block,
+.curves-section {
   border-radius: 20px;
   border: 1px solid rgba(120, 151, 235, 0.1);
   background:
-      linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.022));
+    linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.022));
   padding: 16px;
 }
 
@@ -966,7 +1405,8 @@ watch(
   text-align: center;
 }
 
-.panel-block--error {
+.panel-block--error,
+.empty-state--error {
   color: #ffb49f;
 }
 
@@ -1093,21 +1533,54 @@ watch(
   line-height: 1.45;
 }
 
-.metrics-header {
+.metrics-header,
+.curves-section__header {
   margin-bottom: 12px;
 }
 
-.metrics-header h3 {
+.metrics-header--row,
+.curves-section__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.metrics-header h3,
+.curves-section__header h3 {
   margin: 0 0 6px;
   color: #eef4ff;
   font-size: 18px;
 }
 
-.metrics-header p {
+.metrics-header p,
+.curves-section__header p {
   margin: 0;
   color: #8ea5d2;
   font-size: 13px;
   line-height: 1.4;
+}
+
+.small-action-button {
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(120, 151, 235, 0.12);
+  background: rgba(255,255,255,0.05);
+  color: #dbe8ff;
+  cursor: pointer;
+  font-size: 12px;
+  flex: 0 0 auto;
+}
+
+.small-action-button:hover:not(:disabled) {
+  background: rgba(107, 158, 255, 0.1);
+  border-color: rgba(107, 158, 255, 0.16);
+}
+
+.small-action-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .comparison-table {
@@ -1163,6 +1636,77 @@ watch(
   font-size: 13px;
 }
 
+.curves-section,
+.full-results-section {
+  margin-top: 16px;
+}
+
+.full-results-section {
+  border-radius: 20px;
+  border: 1px solid rgba(120, 151, 235, 0.1);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.022));
+  padding: 16px;
+}
+
+.full-results-scroll {
+  overflow-x: auto;
+}
+
+.full-results-table {
+  width: 100%;
+  min-width: 1120px;
+  border-collapse: collapse;
+  color: #eaf1ff;
+  font-size: 12px;
+}
+
+.full-results-table th {
+  padding: 11px 10px;
+  text-align: left;
+  color: #90a4cd;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 700;
+}
+
+.full-results-table td {
+  padding: 11px 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  white-space: nowrap;
+}
+
+.full-results-table__model {
+  color: #eef4ff;
+  font-weight: 800;
+}
+
+.full-results-table__row--active td {
+  background: rgba(121, 219, 255, 0.06);
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  background: rgba(143, 230, 198, 0.1);
+  color: #9ee8ce;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.curves-content {
+  margin-top: 14px;
+}
+
+.curve-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
 .modal-footer {
   margin-top: 18px;
   display: flex;
@@ -1190,6 +1734,12 @@ watch(
   background: rgba(255,255,255,0.06);
   color: #dce8ff;
   border: 1px solid rgba(120, 151, 235, 0.12);
+}
+
+@media (max-width: 980px) {
+  .curve-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 860px) {
@@ -1237,6 +1787,11 @@ watch(
 
   .mini-bars__item {
     width: 112px;
+  }
+
+  .metrics-header--row,
+  .curves-section__header {
+    flex-direction: column;
   }
 }
 </style>

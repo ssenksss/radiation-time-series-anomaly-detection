@@ -1,20 +1,23 @@
-
-# Python
+# Python cache
 __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
 .Python
+.pytest_cache/
+.mypy_cache/
 
+# Virtual environments
 venv/
 .venv/
 env/
 backend/venv/
 backend/.venv/
 
+# Logs
 *.log
 
-# Environment
+# Environment files
 .env
 .env.local
 .env.*.local
@@ -39,12 +42,30 @@ postgres-data/
 pgdata/
 database/data/
 
+# Backup files
+radiation_backup_before_cleanup.sql
+*_backup.sql
+*.backup
+
+# Archive / old files
+backend/archiveFiles/
+ml/archiveFiles/
+
 # Uploaded / generated datasets
 uploads/
 backend/uploads/
 ml/datasets/uploads/
+
+# ML outputs
+# Ignore generated output by default, but keep final thesis/evaluation artefacts.
 ml/outputs/*
 !ml/outputs/.gitkeep
+!ml/outputs/figures/
+!ml/outputs/figures/*.png
+!ml/outputs/reports/
+!ml/outputs/reports/*.md
+!ml/outputs/tables/
+!ml/outputs/tables/*.csv
 
 # Local data files
 backend/app/data/*.csv
@@ -60,7 +81,7 @@ ml/data_lake/gold/*
 !ml/data_lake/silver/.gitkeep
 !ml/data_lake/gold/.gitkeep
 
-# System
+# System files
 .DS_Store
 __MACOSX/
 __MACOSX__/

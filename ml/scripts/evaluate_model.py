@@ -1,9 +1,28 @@
 from typing import Optional, Sequence
 
 import pandas as pd
-from sklearn.metrics import accuracy_score, precision_score, recall_score, confusion_matrix
+from sklearn.metrics import (
+    accuracy_score,
+    precision_score,
+    recall_score,
+    f1_score,
+    roc_auc_score,
+    average_precision_score,
+    confusion_matrix,
+)
 
 from db import fetch_one, fetch_all, execute_query
+
+
+TRAIN_RATIO = 0.70
+
+SUPERVISED_MODEL_NAMES = {
+    "Logistic Regression",
+    "Decision Tree",
+    "Random Forest",
+    "Gradient Boosting",
+    "KNN Classifier",
+}
 
 
 def get_active_dataset_id() -> int:
@@ -35,10 +54,21 @@ def get_model_names_for_dataset(dataset_id: int) -> list[str]:
     return [row["model_name"] for row in rows]
 
 
+def keep_test_part(dataframe: pd.DataFrame) -> pd.DataFrame:
+    # metrics are calculated only on the later test part
+    split_index = int(len(dataframe) * TRAIN_RATIO)
+
+    if split_index <= 0 or split_index >= len(dataframe):
+        return dataframe
+
+    return dataframe.iloc[split_index:].copy()
+
+
 def load_labeled_evaluation_data(dataset_id: int, model_name: str) -> pd.DataFrame:
     rows = fetch_all(
         """
         SELECT
+            ar.timestamp,
             ar.predicted_anomaly,
             ar.anomaly_score,
             cm.original_label
@@ -55,7 +85,14 @@ def load_labeled_evaluation_data(dataset_id: int, model_name: str) -> pd.DataFra
         (dataset_id, model_name),
     )
 
-    return pd.DataFrame(rows)
+    dataframe = pd.DataFrame(rows)
+
+    if dataframe.empty:
+        return dataframe
+
+    dataframe["timestamp"] = pd.to_datetime(dataframe["timestamp"])
+
+    return keep_test_part(dataframe)
 
 
 def load_unsupervised_summary(dataset_id: int, model_name: str) -> dict:
@@ -63,7 +100,10 @@ def load_unsupervised_summary(dataset_id: int, model_name: str) -> dict:
         """
         SELECT
             COUNT(*) AS total_records,
-            COALESCE(SUM(CASE WHEN predicted_anomaly = TRUE THEN 1 ELSE 0 END), 0) AS total_anomalies
+            COALESCE(SUM(CASE WHEN predicted_anomaly = TRUE THEN 1 ELSE 0 END), 0) AS total_anomalies,
+            AVG(anomaly_score) AS score_mean,
+            STDDEV_POP(anomaly_score) AS score_std,
+            VAR_POP(anomaly_score) AS score_variance
         FROM anomaly_results
         WHERE dataset_id = %s
           AND model_name = %s;
@@ -75,21 +115,38 @@ def load_unsupervised_summary(dataset_id: int, model_name: str) -> dict:
         return {
             "total_records": 0,
             "total_anomalies": 0,
+            "score_mean": None,
+            "score_std": None,
+            "score_variance": None,
         }
 
     return {
         "total_records": int(row["total_records"] or 0),
         "total_anomalies": int(row["total_anomalies"] or 0),
+        "score_mean": round(float(row["score_mean"]), 6) if row["score_mean"] is not None else None,
+        "score_std": round(float(row["score_std"]), 6) if row["score_std"] is not None else None,
+        "score_variance": round(float(row["score_variance"]), 6) if row["score_variance"] is not None else None,
     }
 
 
-def calculate_supervised_metrics(dataframe: pd.DataFrame) -> dict:
+def calculate_labeled_metrics(dataframe: pd.DataFrame, evaluation_mode: str) -> dict:
     y_true = dataframe["original_label"].astype(bool)
     y_pred = dataframe["predicted_anomaly"].astype(bool)
+    y_score = pd.to_numeric(dataframe["anomaly_score"], errors="coerce").fillna(0)
 
     accuracy = accuracy_score(y_true, y_pred) * 100
     precision = precision_score(y_true, y_pred, zero_division=0)
     recall = recall_score(y_true, y_pred, zero_division=0)
+    f1 = f1_score(y_true, y_pred, zero_division=0)
+
+    has_both_classes = y_true.nunique() == 2
+
+    roc_auc = None
+    pr_auc = None
+
+    if has_both_classes:
+        roc_auc = roc_auc_score(y_true, y_score)
+        pr_auc = average_precision_score(y_true, y_score)
 
     tn, fp, fn, tp = confusion_matrix(
         y_true,
@@ -101,10 +158,13 @@ def calculate_supervised_metrics(dataframe: pd.DataFrame) -> dict:
     fnr = fn / (fn + tp) if (fn + tp) else 0
 
     return {
-        "evaluation_mode": "supervised",
+        "evaluation_mode": evaluation_mode,
         "accuracy": round(float(accuracy), 2),
         "precision": round(float(precision), 4),
         "recall": round(float(recall), 4),
+        "f1_score": round(float(f1), 4),
+        "roc_auc": round(float(roc_auc), 4) if roc_auc is not None else None,
+        "pr_auc": round(float(pr_auc), 4) if pr_auc is not None else None,
         "fpr": round(float(fpr), 4),
         "fnr": round(float(fnr), 4),
         "total_records": int(len(dataframe)),
@@ -114,6 +174,11 @@ def calculate_supervised_metrics(dataframe: pd.DataFrame) -> dict:
         "tn": int(tn),
         "fp": int(fp),
         "fn": int(fn),
+        "score_mean": round(float(y_score.mean()), 6),
+        "score_std": round(float(y_score.std()), 6),
+        "score_variance": round(float(y_score.var()), 6),
+        "training_time_seconds": None,
+        "prediction_time_seconds": None,
     }
 
 
@@ -125,6 +190,9 @@ def calculate_unsupervised_metrics(dataset_id: int, model_name: str) -> dict:
         "accuracy": None,
         "precision": None,
         "recall": None,
+        "f1_score": None,
+        "roc_auc": None,
+        "pr_auc": None,
         "fpr": None,
         "fnr": None,
         "total_records": summary["total_records"],
@@ -134,7 +202,34 @@ def calculate_unsupervised_metrics(dataset_id: int, model_name: str) -> dict:
         "tn": 0,
         "fp": 0,
         "fn": 0,
+        "score_mean": summary["score_mean"],
+        "score_std": summary["score_std"],
+        "score_variance": summary["score_variance"],
+        "training_time_seconds": None,
+        "prediction_time_seconds": None,
     }
+
+
+def get_evaluation_mode(model_name: str) -> str:
+    if model_name in SUPERVISED_MODEL_NAMES:
+        return "supervised"
+
+    return "labeled"
+
+
+def attach_model_timing(metrics: dict, model_name: str, model_timings: Optional[dict]) -> dict:
+    if not model_timings:
+        return metrics
+
+    timing = model_timings.get(model_name)
+
+    if not timing:
+        return metrics
+
+    metrics["training_time_seconds"] = timing.get("training_time_seconds")
+    metrics["prediction_time_seconds"] = timing.get("prediction_time_seconds")
+
+    return metrics
 
 
 def save_metrics(dataset_id: int, model_name: str, metrics: dict) -> None:
@@ -155,28 +250,65 @@ def save_metrics(dataset_id: int, model_name: str, metrics: dict) -> None:
             accuracy,
             precision_score,
             recall_score,
+            f1_score,
+            roc_auc,
+            pr_auc,
             fpr,
             fnr,
+            tp,
+            tn,
+            fp,
+            fn,
+            true_anomalies,
             total_records,
-            total_anomalies
+            total_anomalies,
+            score_mean,
+            score_std,
+            score_variance,
+            training_time_seconds,
+            prediction_time_seconds,
+            evaluation_mode
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s);
+        VALUES (
+            %s, %s, %s, %s, %s,
+            %s, %s, %s, %s, %s,
+            %s, %s, %s, %s, %s,
+            %s, %s, %s, %s, %s,
+            %s, %s, %s
+        );
         """,
         (
             dataset_id,
             model_name,
-            metrics["accuracy"],
-            metrics["precision"],
-            metrics["recall"],
-            metrics["fpr"],
-            metrics["fnr"],
-            metrics["total_records"],
-            metrics["total_anomalies"],
+            metrics.get("accuracy"),
+            metrics.get("precision"),
+            metrics.get("recall"),
+            metrics.get("f1_score"),
+            metrics.get("roc_auc"),
+            metrics.get("pr_auc"),
+            metrics.get("fpr"),
+            metrics.get("fnr"),
+            metrics.get("tp"),
+            metrics.get("tn"),
+            metrics.get("fp"),
+            metrics.get("fn"),
+            metrics.get("true_anomalies"),
+            metrics.get("total_records"),
+            metrics.get("total_anomalies"),
+            metrics.get("score_mean"),
+            metrics.get("score_std"),
+            metrics.get("score_variance"),
+            metrics.get("training_time_seconds"),
+            metrics.get("prediction_time_seconds"),
+            metrics.get("evaluation_mode"),
         ),
     )
 
 
-def evaluate_active_dataset(model_names: Optional[Sequence[str]] = None) -> int:
+def evaluate_active_dataset(
+        model_names: Optional[Sequence[str]] = None,
+        model_timings: Optional[dict] = None,
+) -> int:
     dataset_id = get_active_dataset_id()
 
     if model_names is None:
@@ -194,16 +326,15 @@ def evaluate_active_dataset(model_names: Optional[Sequence[str]] = None) -> int:
     for model_name in model_names_to_evaluate:
         labeled_dataframe = load_labeled_evaluation_data(dataset_id, model_name)
 
-        has_usable_labels = False
-
         if not labeled_dataframe.empty:
-            labels = labeled_dataframe["original_label"].astype(bool)
-            has_usable_labels = bool(labels.any())
-
-        if has_usable_labels:
-            metrics = calculate_supervised_metrics(labeled_dataframe)
+            metrics = calculate_labeled_metrics(
+                dataframe=labeled_dataframe,
+                evaluation_mode=get_evaluation_mode(model_name),
+            )
         else:
             metrics = calculate_unsupervised_metrics(dataset_id, model_name)
+
+        metrics = attach_model_timing(metrics, model_name, model_timings)
 
         save_metrics(dataset_id, model_name, metrics)
 
@@ -211,15 +342,18 @@ def evaluate_active_dataset(model_names: Optional[Sequence[str]] = None) -> int:
         print(f"Model: {model_name}")
         print(f"Evaluation mode: {metrics['evaluation_mode']}")
 
-        if metrics["evaluation_mode"] == "supervised":
+        if metrics["evaluation_mode"] in ("supervised", "labeled"):
             print(f"Accuracy: {metrics['accuracy']}%")
             print(f"Precision: {metrics['precision']}")
             print(f"Recall: {metrics['recall']}")
+            print(f"F1-score: {metrics['f1_score']}")
+            print(f"ROC-AUC: {metrics['roc_auc']}")
+            print(f"PR-AUC: {metrics['pr_auc']}")
             print(f"FPR: {metrics['fpr']}")
             print(f"FNR: {metrics['fnr']}")
-            print(f"True anomalies in dataset: {metrics['true_anomalies']}")
+            print(f"True anomalies in test set: {metrics['true_anomalies']}")
             print(
-                "Confusion matrix: "
+                "Confusion matrix on TEST: "
                 f"TP={metrics['tp']}, TN={metrics['tn']}, FP={metrics['fp']}, FN={metrics['fn']}"
             )
         else:
@@ -227,8 +361,10 @@ def evaluate_active_dataset(model_names: Optional[Sequence[str]] = None) -> int:
             print("Supervised metrics were saved as NULL.")
             print("This is expected for real unlabeled radiation data.")
 
-        print(f"Total records: {metrics['total_records']}")
-        print(f"Predicted anomalies: {metrics['total_anomalies']}")
+        print(f"Total records used for metrics: {metrics['total_records']}")
+        print(f"Predicted anomalies used for metrics: {metrics['total_anomalies']}")
+        print(f"Training time: {metrics['training_time_seconds']}")
+        print(f"Prediction time: {metrics['prediction_time_seconds']}")
 
     execute_query(
         """

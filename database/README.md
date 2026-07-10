@@ -1,78 +1,20 @@
-schema.sql          → PostgreSQL tabele
-seed_settings.sql   → početni threshold/model settings
-README.md           → kratko objašnjenje baze
-
-
-
-
-connection.py                    → konekcija sa PostgreSQL bazom
-queries.py                       → SQL helper funkcije
-
-datasets.py                      → upload CSV endpoint
-pipeline.py                      → endpoint za pokretanje pipeline-a ako zatreba
-
-dataset_upload_service.py        → prima CSV i upisuje dataset u bazu
-database_measurement_service.py  → čita measurements iz baze
-database_summary_service.py      → računa summary iz baze
-database_model_service.py        → čita model metrics iz baze
-pipeline_service.py              → pokreće ML pipeline iz backend-a
-
-
-
-
-radiation-time-series-anomaly-detection/
-├── frontend/
-├── backend/
-│   ├── app/
-│   │   ├── database/
-│   │   │   ├── __init__.py
-│   │   │   ├── connection.py
-│   │   │   └── queries.py
-│   │   ├── routes/
-│   │   │   ├── datasets.py
-│   │   │   └── pipeline.py
-│   │   ├── services/
-│   │   │   ├── dataset_upload_service.py
-│   │   │   ├── database_measurement_service.py
-│   │   │   ├── database_summary_service.py
-│   │   │   ├── database_model_service.py
-│   │   │   └── pipeline_service.py
-│   │   └── main.py
-│   ├── requirements.txt
-│   └── run.py
-├── ml/
-│   ├── datasets/
-│   │   └── mock_radiation_measurements.csv
-│   ├── scripts/
-│   │   ├── db.py
-│   │   ├── ingest_data.py
-│   │   ├── data_preprocessing.py
-│   │   ├── train_isolation_forest.py
-│   │   ├── evaluate_model.py
-│   │   └── run_ml_pipeline.py
-│   └── outputs/
-│       └── .gitkeep
-├── database/
-│   ├── schema.sql
-│   ├── seed_settings.sql
-│   └── README.md
-├── .env.example
-├── README.md
-└── .gitignore
-
-
-
-==========================================
-
 # Radiation Monitoring Database
 
-This folder contains the PostgreSQL database schema for the radiation monitoring anomaly detection prototype.
+This folder contains PostgreSQL schema and SQL scripts used by the Radiation Monitoring prototype.
 
-## Database role
+## Files
+
+| File | Purpose |
+| --- | --- |
+| `schema.sql` | Creates the main database tables |
+| `seed_settings.sql` | Inserts initial application settings |
+| `analytics_views.sql` | Creates analytical SQL views for reporting |
+
+## Database Role
 
 The database stores:
 
-- uploaded datasets
+- uploaded dataset metadata
 - raw CSV measurements
 - cleaned measurements
 - feature-engineered measurements
@@ -80,22 +22,39 @@ The database stores:
 - model metrics
 - application settings
 
-## Data flow
+It supports both the traditional ML pipeline and the decision support layer by storing predictions, evaluation metrics and analytical summaries.
 
-CSV dataset  
-→ raw_measurements  
-→ clean_measurements  
-→ feature_measurements  
-→ anomaly_results + model_metrics  
-→ FastAPI backend  
+## Data Flow
+
+```text
+CSV / ZIP dataset
+→ raw_measurements
+→ clean_measurements
+→ feature_measurements
+→ anomaly_results
+→ model_metrics
+→ FastAPI backend
 → Vue dashboard
+```
 
-## Main tables
+## Main Tables
 
-- `datasets` — metadata about uploaded CSV files
-- `raw_measurements` — original CSV values
-- `clean_measurements` — standardized and cleaned measurements
-- `feature_measurements` — ML-ready feature table
-- `anomaly_results` — anomaly predictions
-- `model_metrics` — evaluation metrics
-- `app_settings` — threshold and active dataset settings
+| Table | Description |
+| --- | --- |
+| `datasets` | Metadata about uploaded datasets |
+| `raw_measurements` | Original imported records |
+| `clean_measurements` | Cleaned and standardized records |
+| `feature_measurements` | Feature table used by ML models |
+| `anomaly_results` | Model predictions and anomaly scores |
+| `model_metrics` | Evaluation metrics for each model |
+| `app_settings` | Active dataset, threshold and model settings |
+
+## Analytical Views
+
+The file `analytics_views.sql` defines reporting views used by the dashboard:
+
+- `vw_daily_radiation_summary`
+- `vw_hourly_radiation_summary`
+- `vw_location_anomaly_summary`
+- `vw_model_performance`
+- `vw_latest_anomalies`

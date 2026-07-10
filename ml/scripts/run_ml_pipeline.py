@@ -1,100 +1,131 @@
 from pathlib import Path
 import argparse
+import sys
 import time
+from typing import Any, Callable, Dict, Optional, Tuple
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+SCRIPTS_DIR = PROJECT_ROOT / "ml" / "scripts"
+
+for import_path in (PROJECT_ROOT, SCRIPTS_DIR):
+    if str(import_path) not in sys.path:
+        sys.path.append(str(import_path))
 
 from db import fetch_one
 from ingest_data import ingest_csv, DEFAULT_CSV_PATH
 from data_preprocessing import preprocess_active_dataset
 from create_features import create_features_for_active_dataset
-from train_isolation_forest import train_model_for_active_dataset
-from train_lof import train_lof_for_active_dataset
-from train_one_class_svm import train_one_class_svm_for_active_dataset
-from train_elliptic_envelope import train_elliptic_envelope_for_active_dataset
-from train_dbscan import train_dbscan_for_active_dataset
-from train_kmeans_distance import train_kmeans_distance_for_active_dataset
-from train_gaussian_mixture import train_gaussian_mixture_for_active_dataset
-from train_pca_reconstruction import train_pca_reconstruction_for_active_dataset
-from train_hbos import train_hbos_for_active_dataset
-from train_ecod import train_ecod_for_active_dataset
+from ml.models.unsupervised.train_isolation_forest import train_model_for_active_dataset
+from ml.models.unsupervised.train_lof import train_lof_for_active_dataset
+from ml.models.unsupervised.train_one_class_svm import train_one_class_svm_for_active_dataset
+from ml.models.unsupervised.train_dbscan import train_dbscan_for_active_dataset
+from ml.models.unsupervised.train_kmeans_distance import train_kmeans_distance_for_active_dataset
+from ml.models.unsupervised.train_gaussian_mixture import train_gaussian_mixture_for_active_dataset
+from ml.models.unsupervised.train_pca_reconstruction import train_pca_reconstruction_for_active_dataset
+from ml.models.unsupervised.train_hbos import train_hbos_for_active_dataset
+from ml.models.unsupervised.train_ecod import train_ecod_for_active_dataset
 from evaluate_model import evaluate_active_dataset
+
+
+TimingDict = Dict[str, Any]
+TrainFunction = Callable[[], Optional[TimingDict]]
 
 
 def get_active_model_id() -> str:
     row = fetch_one("SELECT value FROM app_settings WHERE key = 'active_model';")
+
     if not row:
         return "isolation_forest"
 
     value = str(row["value"]).strip().lower().replace("-", "_").replace(" ", "_")
 
-    if value in {"isolation", "isolationforest", "iforest"}:
+    if value in {"isolation_forest", "isolation", "isolationforest", "iforest"}:
         return "isolation_forest"
-    if value in {"local_outlier_factor", "lof"}:
+
+    if value in {"local_outlier_factor", "localoutlierfactor", "lof"}:
         return "lof"
+
     if value in {"one_class_svm", "oneclasssvm", "ocsvm"}:
         return "one_class_svm"
-    if value in {"elliptic_envelope", "ellipticenvelope"}:
-        return "elliptic_envelope"
+
     if value in {"dbscan"}:
         return "dbscan"
+
     if value in {"kmeans_distance", "kmeans", "k_means_distance"}:
         return "kmeans_distance"
+
     if value in {"gaussian_mixture", "gaussian_mixture_model", "gmm"}:
         return "gaussian_mixture"
+
     if value in {"pca_reconstruction", "pca_reconstruction_error", "pca"}:
         return "pca_reconstruction"
+
     if value in {"hbos"}:
         return "hbos"
+
     if value in {"ecod"}:
         return "ecod"
 
     return "isolation_forest"
 
 
-def train_active_model_only() -> str:
+def normalize_timing(raw_timing: Optional[TimingDict]) -> TimingDict:
+    if not raw_timing:
+        return {
+            "training_time_seconds": None,
+            "prediction_time_seconds": None,
+        }
+
+    return {
+        "training_time_seconds": raw_timing.get("training_time_seconds"),
+        "prediction_time_seconds": raw_timing.get("prediction_time_seconds"),
+    }
+
+
+def run_model(model_label: str, train_function: TrainFunction) -> Tuple[str, TimingDict]:
+    timing = train_function()
+    return model_label, normalize_timing(timing)
+
+
+UNSUPERVISED_MODEL_STEPS: list[Tuple[str, str, TrainFunction]] = [
+    ("Isolation Forest", "train Isolation Forest and write anomaly_results", train_model_for_active_dataset),
+    ("Local Outlier Factor", "train Local Outlier Factor and write anomaly_results", train_lof_for_active_dataset),
+    ("One-Class SVM", "train One-Class SVM and write anomaly_results", train_one_class_svm_for_active_dataset),
+    ("DBSCAN", "train DBSCAN and write anomaly_results", train_dbscan_for_active_dataset),
+    ("K-Means Distance", "train K-Means Distance and write anomaly_results", train_kmeans_distance_for_active_dataset),
+    ("Gaussian Mixture Model", "train Gaussian Mixture Model and write anomaly_results", train_gaussian_mixture_for_active_dataset),
+    ("PCA Reconstruction Error", "train PCA Reconstruction Error and write anomaly_results", train_pca_reconstruction_for_active_dataset),
+    ("HBOS", "train HBOS and write anomaly_results", train_hbos_for_active_dataset),
+    ("ECOD", "train ECOD and write anomaly_results", train_ecod_for_active_dataset),
+]
+
+
+ACTIVE_MODEL_REGISTRY: dict[str, Tuple[str, TrainFunction]] = {
+    "isolation_forest": ("Isolation Forest", train_model_for_active_dataset),
+    "lof": ("Local Outlier Factor", train_lof_for_active_dataset),
+    "one_class_svm": ("One-Class SVM", train_one_class_svm_for_active_dataset),
+    "dbscan": ("DBSCAN", train_dbscan_for_active_dataset),
+    "kmeans_distance": ("K-Means Distance", train_kmeans_distance_for_active_dataset),
+    "gaussian_mixture": ("Gaussian Mixture Model", train_gaussian_mixture_for_active_dataset),
+    "pca_reconstruction": ("PCA Reconstruction Error", train_pca_reconstruction_for_active_dataset),
+    "hbos": ("HBOS", train_hbos_for_active_dataset),
+    "ecod": ("ECOD", train_ecod_for_active_dataset),
+}
+
+
+def train_active_model_only() -> Tuple[str, TimingDict]:
     active_model = get_active_model_id()
+    model_label, train_function = ACTIVE_MODEL_REGISTRY.get(
+        active_model,
+        ACTIVE_MODEL_REGISTRY["isolation_forest"],
+    )
 
-    if active_model == "lof":
-        train_lof_for_active_dataset()
-        return "Local Outlier Factor"
-
-    if active_model == "one_class_svm":
-        train_one_class_svm_for_active_dataset()
-        return "One-Class SVM"
-
-    if active_model == "elliptic_envelope":
-        train_elliptic_envelope_for_active_dataset()
-        return "Elliptic Envelope"
-
-    if active_model == "dbscan":
-        train_dbscan_for_active_dataset()
-        return "DBSCAN"
-
-    if active_model == "kmeans_distance":
-        train_kmeans_distance_for_active_dataset()
-        return "K-Means Distance"
-
-    if active_model == "gaussian_mixture":
-        train_gaussian_mixture_for_active_dataset()
-        return "Gaussian Mixture Model"
-
-    if active_model == "pca_reconstruction":
-        train_pca_reconstruction_for_active_dataset()
-        return "PCA Reconstruction Error"
-
-    if active_model == "hbos":
-        train_hbos_for_active_dataset()
-        return "HBOS"
-
-    if active_model == "ecod":
-        train_ecod_for_active_dataset()
-        return "ECOD"
-
-    train_model_for_active_dataset()
-    return "Isolation Forest"
+    return run_model(model_label, train_function)
 
 
 def run_full_pipeline(csv_path: Path, skip_ingest: bool = False) -> None:
     started_at = time.time()
+    model_timings: dict[str, TimingDict] = {}
 
     print("=" * 60)
     print("Radiation Monitoring ML Pipeline")
@@ -102,49 +133,30 @@ def run_full_pipeline(csv_path: Path, skip_ingest: bool = False) -> None:
     print("=" * 60)
 
     if skip_ingest:
-        print("Step 1/14 skipped: using current active dataset")
+        print("Step 1/13 skipped: using current active dataset")
     else:
-        print("Step 1/14: ingest CSV into PostgreSQL raw_measurements")
+        print("Step 1/13: ingest CSV into PostgreSQL raw_measurements")
         ingest_csv(csv_path)
 
-    print("\nStep 2/14: raw_measurements -> clean_measurements")
+    print("\nStep 2/13: raw_measurements -> clean_measurements")
     preprocess_active_dataset()
 
-    print("\nStep 3/14: clean_measurements -> feature_measurements")
+    print("\nStep 3/13: clean_measurements -> feature_measurements")
     create_features_for_active_dataset()
 
-    print("\nStep 4/14: train Isolation Forest and write anomaly_results")
-    train_model_for_active_dataset()
+    for step_number, (model_label, step_title, train_function) in enumerate(
+            UNSUPERVISED_MODEL_STEPS,
+            start=4,
+    ):
+        print(f"\nStep {step_number}/13: {step_title}")
+        _, timing = run_model(model_label, train_function)
+        model_timings[model_label] = timing
 
-    print("\nStep 5/14: train Local Outlier Factor and write anomaly_results")
-    train_lof_for_active_dataset()
-
-    print("\nStep 6/14: train One-Class SVM and write anomaly_results")
-    train_one_class_svm_for_active_dataset()
-
-    print("\nStep 7/14: train Elliptic Envelope and write anomaly_results")
-    train_elliptic_envelope_for_active_dataset()
-
-    print("\nStep 8/14: train DBSCAN and write anomaly_results")
-    train_dbscan_for_active_dataset()
-
-    print("\nStep 9/14: train K-Means Distance and write anomaly_results")
-    train_kmeans_distance_for_active_dataset()
-
-    print("\nStep 10/14: train Gaussian Mixture Model and write anomaly_results")
-    train_gaussian_mixture_for_active_dataset()
-
-    print("\nStep 11/14: train PCA Reconstruction Error and write anomaly_results")
-    train_pca_reconstruction_for_active_dataset()
-
-    print("\nStep 12/14: train HBOS and write anomaly_results")
-    train_hbos_for_active_dataset()
-
-    print("\nStep 13/14: train ECOD and write anomaly_results")
-    train_ecod_for_active_dataset()
-
-    print("\nStep 14/14: evaluate all models and write model_metrics")
-    evaluate_active_dataset()
+    print("\nStep 13/13: evaluate unsupervised models and write model_metrics")
+    evaluate_active_dataset(
+        model_names=list(model_timings.keys()),
+        model_timings=model_timings,
+    )
 
     elapsed = round(time.time() - started_at, 2)
 
@@ -163,10 +175,13 @@ def run_threshold_update_pipeline() -> None:
     print("=" * 60)
 
     print("Step 1/2: train only the active model")
-    active_model_label = train_active_model_only()
+    active_model_label, timing = train_active_model_only()
 
     print("\nStep 2/2: evaluate only the active model")
-    evaluate_active_dataset(model_names=[active_model_label])
+    evaluate_active_dataset(
+        model_names=[active_model_label],
+        model_timings={active_model_label: timing},
+    )
 
     elapsed = round(time.time() - started_at, 2)
 

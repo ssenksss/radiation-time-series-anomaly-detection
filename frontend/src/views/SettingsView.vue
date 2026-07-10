@@ -71,7 +71,20 @@ interface ModelComparisonItem {
   recall: number | null
   fpr: number | null
   fnr: number | null
-  evaluationMode?: 'supervised' | 'unsupervised' | 'pending'
+  f1Score?: number | null
+  rocAuc?: number | null
+  prAuc?: number | null
+  tp?: number
+  tn?: number
+  fp?: number
+  fn?: number
+  trueAnomalies?: number | null
+  scoreMean?: number | null
+  scoreStd?: number | null
+  scoreVariance?: number | null
+  trainingTimeSeconds?: number | null
+  predictionTimeSeconds?: number | null
+  evaluationMode?: 'supervised' | 'labeled' | 'unsupervised' | 'pending'  
   totalRecords?: number
   totalAnomalies?: number
   anomalyRate?: number | null
@@ -87,8 +100,21 @@ interface ModelInfo {
   recall?: number | null
   fpr: number | null
   fnr?: number | null
+  f1Score?: number | null
+  rocAuc?: number | null
+  prAuc?: number | null
+  tp?: number
+  tn?: number
+  fp?: number
+  fn?: number
+  trueAnomalies?: number | null
+  scoreMean?: number | null
+  scoreStd?: number | null
+  scoreVariance?: number | null
+  trainingTimeSeconds?: number | null
+  predictionTimeSeconds?: number | null
   modelScore?: number | null
-  evaluationMode?: 'supervised' | 'unsupervised' | 'pending'
+  evaluationMode?: 'supervised' | 'labeled' | 'unsupervised' | 'pending'
   datasetHasLabels?: boolean
   hasLabels?: boolean
   totalRecords?: number
@@ -139,7 +165,6 @@ const modelDescriptions: Record<string, string> = {
   isolation_forest: 'Tree-based unsupervised anomaly detector for radiation measurements.',
   lof: 'Density-based unsupervised model that detects locally unusual measurements.',
   one_class_svm: 'Unsupervised boundary-based model that learns the normal data region.',
-  elliptic_envelope: 'Statistical anomaly detector based on covariance and elliptical distribution assumptions.',
   dbscan: 'Clustering-based method where noise points are treated as anomalies.',
   kmeans_distance: 'Clustering-distance model where distant points from cluster centers are treated as anomalies.',
   gaussian_mixture: 'Probabilistic model that detects low-likelihood measurements.',
@@ -161,11 +186,13 @@ const editableThreshold = ref(0.18)
 const savedThreshold = ref(0.18)
 
 const selectedModel = ref('isolation_forest')
+const savedModel = ref('isolation_forest')
 const isModelDropdownOpen = ref(false)
 
 const { notificationSettings, saveNotificationSettings } = useNotificationSettingsStore()
 
 const isPreviewEnabled = ref(true)
+const showAllModelMetrics = ref(false)
 
 const saveStatus = ref('')
 const emailStatus = ref('')
@@ -188,8 +215,12 @@ const hasUnsavedThresholdChanges = computed(() => {
   return Math.abs(editableThreshold.value - savedThreshold.value) > 0.0001
 })
 
+const hasUnsavedModelChanges = computed(() => {
+  return selectedModel.value !== savedModel.value
+})
+
 const metricsAreStale = computed(() => {
-  return hasUnsavedThresholdChanges.value || isPipelineRunning.value
+  return hasUnsavedThresholdChanges.value || hasUnsavedModelChanges.value || isPipelineRunning.value
 })
 
 const thresholdSliderMax = computed(() => {
@@ -211,6 +242,14 @@ const thresholdFillStyle = computed(() => ({
 const thresholdThumbStyle = computed(() => ({
   left: `calc(${thresholdPercent.value}% - 8px)`,
 }))
+
+const formatSeconds = (value: number | null | undefined) => {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) {
+    return 'N/A'
+  }
+
+  return `${Number(value).toFixed(4)}s`
+}
 
 const availableModels = computed(() => {
   const models = modelInfo.value?.availableModels
@@ -272,13 +311,26 @@ const selectedModelMetrics = computed(() => {
       requiresLabels: selectedModelOption.value?.requiresLabels,
       enabled: selectedModelOption.value?.enabled,
       disabledReason: selectedModelOption.value?.disabledReason,
-      score: modelInfo.value.accuracy,
+      score: modelInfo.value.modelScore ?? modelInfo.value.accuracy,
       modelScore: modelInfo.value.modelScore,
       accuracy: modelInfo.value.accuracy,
       precision: modelInfo.value.precision,
       recall: modelInfo.value.recall ?? null,
       fpr: modelInfo.value.fpr,
       fnr: modelInfo.value.fnr ?? null,
+      f1Score: modelInfo.value.f1Score ?? null,
+      rocAuc: modelInfo.value.rocAuc ?? null,
+      prAuc: modelInfo.value.prAuc ?? null,
+      tp: modelInfo.value.tp ?? 0,
+      tn: modelInfo.value.tn ?? 0,
+      fp: modelInfo.value.fp ?? 0,
+      fn: modelInfo.value.fn ?? 0,
+      trueAnomalies: modelInfo.value.trueAnomalies ?? null,
+      scoreMean: modelInfo.value.scoreMean ?? null,
+      scoreStd: modelInfo.value.scoreStd ?? null,
+      scoreVariance: modelInfo.value.scoreVariance ?? null,
+      trainingTimeSeconds: modelInfo.value.trainingTimeSeconds ?? null,
+      predictionTimeSeconds: modelInfo.value.predictionTimeSeconds ?? null,
       evaluationMode: modelInfo.value.evaluationMode,
       totalRecords: modelInfo.value.totalRecords,
       totalAnomalies: modelInfo.value.totalAnomalies,
@@ -295,13 +347,15 @@ const selectedEvaluationMode = computed(() => {
   return selectedModelMetrics.value?.evaluationMode ?? modelInfo.value?.evaluationMode ?? 'pending'
 })
 
-const isUnsupervisedModel = computed(() => {
-  return selectedModelMetrics.value?.category === 'unsupervised' || selectedEvaluationMode.value === 'unsupervised'
+const selectedModelCategory = computed(() => {
+  return selectedModelMetrics.value?.category ?? selectedModelOption.value?.category
 })
 
-const isSupervisedModel = computed(() => {
-  return selectedModelMetrics.value?.category === 'supervised' || selectedEvaluationMode.value === 'supervised'
+const isUnsupervisedModel = computed(() => {
+  return selectedModelCategory.value === 'unsupervised' || selectedEvaluationMode.value === 'unsupervised'
 })
+
+
 
 const modelMetricTitle = computed(() => {
   if (metricsAreStale.value) return 'Metrics Need Update'
@@ -429,51 +483,332 @@ const anomalyRateValue = computed(() => {
   return `${((Number(totalAnomalies) / Number(totalRecords)) * 100).toFixed(3)}%`
 })
 
-const evaluationValue = computed(() => {
+const modelTypeValue = computed(() => {
   if (metricsAreStale.value) return 'Save required'
   if (!isSelectedModelImplemented.value) return 'Pending'
-  if (isUnsupervisedModel.value) return 'Unsupervised'
-  if (isSupervisedModel.value) return 'Supervised'
+
+  if (selectedModelCategory.value === 'unsupervised') return 'Unsupervised'
+  if (selectedModelCategory.value === 'supervised') return 'Supervised'
+  if (selectedModelCategory.value === 'future') return 'Future'
 
   return 'Pending'
 })
 
-const metricCardOneLabel = computed(() => {
-  return isUnsupervisedModel.value && !datasetHasLabels.value ? 'Detected Anomalies' : 'Precision'
+const evaluationValue = computed(() => {
+  if (metricsAreStale.value) return 'Save required'
+  if (!isSelectedModelImplemented.value) return 'Pending'
+
+  if (selectedEvaluationMode.value === 'labeled') {
+    return 'Labeled evaluation'
+  }
+
+  if (selectedEvaluationMode.value === 'supervised') {
+    return 'Supervised test evaluation'
+  }
+
+  if (selectedEvaluationMode.value === 'unsupervised') {
+    return 'Unlabeled detection'
+  }
+
+  return 'Pending'
 })
 
-const metricCardOneValue = computed(() => {
-  return isUnsupervisedModel.value && !datasetHasLabels.value ? detectedAnomaliesValue.value : precisionValue.value
+const f1ScoreValue = computed(() => {
+  if (metricsAreStale.value) return 'Save required'
+  if (!isSelectedModelImplemented.value) return 'Pending'
+
+  const value = selectedModelMetrics.value?.f1Score ?? modelInfo.value?.f1Score
+
+  if (value === null || value === undefined) return 'N/A'
+
+  return Number(value).toFixed(3)
 })
 
-const metricCardTwoLabel = computed(() => {
-  return isUnsupervisedModel.value && !datasetHasLabels.value ? 'Total Records' : 'Recall'
+const rocAucValue = computed(() => {
+  if (metricsAreStale.value) return 'Save required'
+  if (!isSelectedModelImplemented.value) return 'Pending'
+
+  const value = selectedModelMetrics.value?.rocAuc ?? modelInfo.value?.rocAuc
+
+  if (value === null || value === undefined) return 'N/A'
+
+  return Number(value).toFixed(3)
 })
 
-const metricCardTwoValue = computed(() => {
-  return isUnsupervisedModel.value && !datasetHasLabels.value ? totalRecordsValue.value : recallValue.value
+const prAucValue = computed(() => {
+  if (metricsAreStale.value) return 'Save required'
+  if (!isSelectedModelImplemented.value) return 'Pending'
+
+  const value = selectedModelMetrics.value?.prAuc ?? modelInfo.value?.prAuc
+
+  if (value === null || value === undefined) return 'N/A'
+
+  return Number(value).toFixed(3)
 })
 
-const metricCardThreeLabel = computed(() => {
-  return isUnsupervisedModel.value && !datasetHasLabels.value ? 'Anomaly Rate' : 'FPR'
+const trueAnomaliesValue = computed(() => {
+  if (metricsAreStale.value) return 'Save required'
+  if (!isSelectedModelImplemented.value) return 'Pending'
+
+  const value = selectedModelMetrics.value?.trueAnomalies ?? modelInfo.value?.trueAnomalies
+
+  if (value === null || value === undefined) return 'N/A'
+
+  return Number(value).toLocaleString()
 })
 
-const metricCardThreeValue = computed(() => {
-  return isUnsupervisedModel.value && !datasetHasLabels.value ? anomalyRateValue.value : fprValue.value
+const tpTnValue = computed(() => {
+  if (metricsAreStale.value) return 'Save required'
+  if (!isSelectedModelImplemented.value) return 'Pending'
+
+  const tp = selectedModelMetrics.value?.tp ?? modelInfo.value?.tp
+  const tn = selectedModelMetrics.value?.tn ?? modelInfo.value?.tn
+
+  if (tp === null || tp === undefined || tn === null || tn === undefined) return 'N/A'
+
+  return `${Number(tp).toLocaleString()} / ${Number(tn).toLocaleString()}`
 })
 
-const metricCardFourLabel = computed(() => {
-  return isUnsupervisedModel.value && !datasetHasLabels.value ? 'Evaluation' : 'FNR'
+const fpFnValue = computed(() => {
+  if (metricsAreStale.value) return 'Save required'
+  if (!isSelectedModelImplemented.value) return 'Pending'
+
+  const fp = selectedModelMetrics.value?.fp ?? modelInfo.value?.fp
+  const fn = selectedModelMetrics.value?.fn ?? modelInfo.value?.fn
+
+  if (fp === null || fp === undefined || fn === null || fn === undefined) return 'N/A'
+
+  return `${Number(fp).toLocaleString()} / ${Number(fn).toLocaleString()}`
 })
 
-const metricCardFourValue = computed(() => {
-  return isUnsupervisedModel.value && !datasetHasLabels.value ? evaluationValue.value : fnrValue.value
+const scoreStdValue = computed(() => {
+  if (metricsAreStale.value) return 'Save required'
+  if (!isSelectedModelImplemented.value) return 'Pending'
+
+  const value = selectedModelMetrics.value?.scoreStd ?? modelInfo.value?.scoreStd
+
+  if (value === null || value === undefined) return 'N/A'
+
+  return Number(value).toFixed(3)
 })
+
+const scoreVarianceValue = computed(() => {
+  if (metricsAreStale.value) return 'Save required'
+  if (!isSelectedModelImplemented.value) return 'Pending'
+
+  const value = selectedModelMetrics.value?.scoreVariance ?? modelInfo.value?.scoreVariance
+
+  if (value === null || value === undefined) return 'N/A'
+
+  return Number(value).toFixed(3)
+})
+
+const trainingTimeValue = computed(() => {
+  if (metricsAreStale.value) return 'Save required'
+  if (!isSelectedModelImplemented.value) return 'Pending'
+
+  return formatSeconds(
+      selectedModelMetrics.value?.trainingTimeSeconds ?? modelInfo.value?.trainingTimeSeconds,
+  )
+})
+
+const predictionTimeValue = computed(() => {
+  if (metricsAreStale.value) return 'Save required'
+  if (!isSelectedModelImplemented.value) return 'Pending'
+
+  return formatSeconds(
+      selectedModelMetrics.value?.predictionTimeSeconds ?? modelInfo.value?.predictionTimeSeconds,
+  )
+})
+
+const isTestBasedEvaluation = computed(() => {
+  return selectedEvaluationMode.value === 'labeled' || selectedEvaluationMode.value === 'supervised'
+})
+
+const trueAnomaliesLabel = computed(() => {
+  return isTestBasedEvaluation.value ? 'True Anomalies (Test)' : 'True Anomalies'
+})
+
+const detectedAnomaliesLabel = computed(() => {
+  return isTestBasedEvaluation.value ? 'Predicted Anomalies (Test)' : 'Detected Anomalies'
+})
+
+const recordsLabel = computed(() => {
+  return isTestBasedEvaluation.value ? 'Test Records' : 'Total Records'
+})
+
+const settingsMetricCards = computed(() => {
+  if (isUnsupervisedModel.value && !datasetHasLabels.value) {
+    return [
+      {
+        label: 'Detected Anomalies',
+        value: detectedAnomaliesValue.value,
+      },
+      {
+        label: 'Total Records',
+        value: totalRecordsValue.value,
+      },
+      {
+        label: 'Anomaly Rate',
+        value: anomalyRateValue.value,
+      },
+      {
+        label: 'Score Std',
+        value: scoreStdValue.value,
+      },
+      {
+        label: 'Score Variance',
+        value: scoreVarianceValue.value,
+      },
+      {
+        label: 'Training Time',
+        value: trainingTimeValue.value,
+      },
+      {
+        label: 'Prediction Time',
+        value: predictionTimeValue.value,
+      },
+      {
+        label: 'Model Type',
+        value: modelTypeValue.value,
+      },
+      {
+        label: 'Evaluation',
+        value: evaluationValue.value,
+      },
+    ]
+  }
+
+  return [
+    {
+      label: 'Precision',
+      value: precisionValue.value,
+    },
+    {
+      label: 'Recall',
+      value: recallValue.value,
+    },
+    {
+      label: 'F1-score',
+      value: f1ScoreValue.value,
+    },
+    {
+      label: 'ROC-AUC',
+      value: rocAucValue.value,
+    },
+    {
+      label: 'PR-AUC',
+      value: prAucValue.value,
+    },
+    {
+      label: 'FPR',
+      value: fprValue.value,
+    },
+    {
+      label: 'FNR',
+      value: fnrValue.value,
+    },
+    {
+      label: 'TP / TN',
+      value: tpTnValue.value,
+    },
+    {
+      label: 'FP / FN',
+      value: fpFnValue.value,
+    },
+    {
+      label: trueAnomaliesLabel.value,
+      value: trueAnomaliesValue.value,
+    },
+    {
+      label: detectedAnomaliesLabel.value,
+      value: detectedAnomaliesValue.value,
+    },
+    {
+      label: recordsLabel.value,
+      value: totalRecordsValue.value,
+    },
+    {
+      label: 'Training Time',
+      value: trainingTimeValue.value,
+    },
+    {
+      label: 'Prediction Time',
+      value: predictionTimeValue.value,
+    },
+    {
+      label: 'Model Type',
+      value: modelTypeValue.value,
+    },
+    {
+      label: 'Evaluation',
+      value: evaluationValue.value,
+    },
+  ]
+})
+
+
+const compactMetricLabels = computed(() => {
+  if (isUnsupervisedModel.value && !datasetHasLabels.value) {
+    return [
+      'Detected Anomalies',
+      'Anomaly Rate',
+      'Training Time',
+      'Model Type',
+      'Evaluation',
+    ]
+  }
+
+  return [
+    'Precision',
+    'Recall',
+    'F1-score',
+    'ROC-AUC',
+    'Training Time',
+    'Prediction Time',
+    'Model Type',
+    'Evaluation',
+  ]
+})
+
+const visibleSettingsMetricCards = computed(() => {
+  if (showAllModelMetrics.value) {
+    return settingsMetricCards.value
+  }
+
+  const labels = new Set(compactMetricLabels.value)
+
+  return settingsMetricCards.value.filter((card) => labels.has(card.label))
+})
+
+const metricsToggleLabel = computed(() => {
+  return showAllModelMetrics.value ? 'Show fewer metrics' : 'Show all metrics'
+})
+
+const getModelDisplayName = (modelId: string) => {
+  const model = availableModels.value.find((item) => item.id === modelId)
+
+  return model?.name ?? modelId
+}
 
 const unsavedThresholdMessage = computed(() => {
-  if (!hasUnsavedThresholdChanges.value) return ''
+  const messages: string[] = []
 
-  return `Unsaved threshold change. Save Changes to retrain models and update metrics. Last saved threshold: ${savedThreshold.value.toFixed(2)} µSv/h.`
+  if (hasUnsavedThresholdChanges.value) {
+    messages.push(
+        `Unsaved threshold change. Last saved threshold: ${savedThreshold.value.toFixed(2)} µSv/h.`,
+    )
+  }
+
+  if (hasUnsavedModelChanges.value) {
+    messages.push(
+        `Unsaved model change. Last saved model: ${getModelDisplayName(savedModel.value)}.`,
+    )
+  }
+
+  if (!messages.length) return ''
+
+  return `${messages.join(' ')} Click Save Changes to retrain models and update metrics.`
 })
 
 const notificationSummary = computed(() => {
@@ -563,32 +898,20 @@ const getSecondaryModelForComparison = (primaryModel: string) => {
   return fallbackModel?.id ?? 'hbos'
 }
 
-const selectModel = async (model: AvailableModel) => {
+const selectModel = (model: AvailableModel) => {
   if (!isModelImplemented(model)) {
     return
   }
 
   selectedModel.value = model.id
   isModelDropdownOpen.value = false
-  saveStatus.value = ''
+  showAllModelMetrics.value = false
+  saveStatus.value = 'Model selected. Click Save Changes to retrain models and update metrics.'
 
-  try {
-    isModelLoading.value = true
-
-    modelInfo.value = await getModelInfo(
-        model.id,
-        getSecondaryModelForComparison(model.id),
-    ) as ModelInfo
-  } catch (error) {
-    console.error(error)
-    saveStatus.value = 'Model info could not be loaded.'
-
-    window.setTimeout(() => {
-      saveStatus.value = ''
-    }, 2500)
-  } finally {
-    isModelLoading.value = false
-  }
+  window.setTimeout(() => {
+    if (hasUnsavedModelChanges.value) return
+    saveStatus.value = ''
+  }, 2500)
 }
 
 const delay = (milliseconds: number) => {
@@ -609,10 +932,18 @@ const refreshSettingsDashboardData = async (threshold: number) => {
     threshold,
   }
 
-  modelInfo.value = modelInfoResponse as ModelInfo
+  const loadedModelInfo = modelInfoResponse as ModelInfo
+  modelInfo.value = loadedModelInfo
   measurements.value = measurementsResponse as Measurement[]
   editableThreshold.value = threshold
   savedThreshold.value = threshold
+
+  if (loadedModelInfo.activeModelId) {
+    selectedModel.value = loadedModelInfo.activeModelId
+    savedModel.value = loadedModelInfo.activeModelId
+  } else {
+    savedModel.value = selectedModel.value
+  }
 }
 
 const waitForPipelineToFinish = async () => {
@@ -744,6 +1075,8 @@ const loadSettingsData = async () => {
     } else if (loadedModelInfo.selectedModels?.modelA) {
       selectedModel.value = loadedModelInfo.selectedModels.modelA
     }
+
+    savedModel.value = selectedModel.value
 
     measurements.value = measurementsResponse as Measurement[]
   } catch (error) {
@@ -919,22 +1252,31 @@ onMounted(() => {
             {{ unsavedThresholdMessage }}
           </p>
 
+          <div class="metrics-header">
+            <div>
+              <span>Model Metrics</span>
+              <small>
+                Showing key metrics. Open full view for complete evaluation.
+              </small>
+            </div>
+
+            <button
+                class="metrics-toggle-button"
+                type="button"
+                @click="showAllModelMetrics = !showAllModelMetrics"
+            >
+              {{ metricsToggleLabel }}
+            </button>
+          </div>
+
           <div class="config-grid">
-            <div class="config-item">
-              <span>{{ metricCardOneLabel }}</span>
-              <strong>{{ metricCardOneValue }}</strong>
-            </div>
-            <div class="config-item">
-              <span>{{ metricCardTwoLabel }}</span>
-              <strong>{{ metricCardTwoValue }}</strong>
-            </div>
-            <div class="config-item">
-              <span>{{ metricCardThreeLabel }}</span>
-              <strong>{{ metricCardThreeValue }}</strong>
-            </div>
-            <div class="config-item">
-              <span>{{ metricCardFourLabel }}</span>
-              <strong>{{ metricCardFourValue }}</strong>
+            <div
+                v-for="card in visibleSettingsMetricCards"
+                :key="card.label"
+                class="config-item"
+            >
+              <span>{{ card.label }}</span>
+              <strong>{{ card.value }}</strong>
             </div>
           </div>
 
@@ -1387,6 +1729,44 @@ onMounted(() => {
   border: 1px solid rgba(255, 179, 106, 0.16);
 }
 
+.metrics-header {
+  margin-top: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.metrics-header span {
+  display: block;
+  color: #eef4ff;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.metrics-header small {
+  color: #90a5cd;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.metrics-toggle-button {
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(120, 151, 235, 0.12);
+  background: rgba(255,255,255,0.05);
+  color: #dbe8ff;
+  cursor: pointer;
+  font-size: 12px;
+  flex: 0 0 auto;
+}
+
+.metrics-toggle-button:hover {
+  background: rgba(107, 158, 255, 0.1);
+  border-color: rgba(107, 158, 255, 0.16);
+}
+
 .config-grid {
   margin-top: 16px;
   display: grid;
@@ -1655,6 +2035,7 @@ onMounted(() => {
   .threshold-row,
   .select-row,
   .model-block__header,
+  .metrics-header,
   .save-row,
   .send-row,
   .preview-header,
