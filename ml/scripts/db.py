@@ -10,12 +10,14 @@ from dotenv import load_dotenv
 ROOT_DIR = Path(__file__).resolve().parents[2]
 ENV_PATH = ROOT_DIR / ".env"
 
+# load local database settings from .env
 load_dotenv(ENV_PATH)
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 
 def get_connection():
+    # every script opens a short database connection when needed
     if not DATABASE_URL:
         raise RuntimeError(
             "DATABASE_URL is not set. Please create a .env file in the project root."

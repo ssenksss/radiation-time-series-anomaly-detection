@@ -115,6 +115,7 @@ COLUMN_ALIASES = {
 def normalize_text(value: object) -> str:
     text = str(value).strip().lower()
 
+    # remove accents so local column names are easier to match
     text = unicodedata.normalize("NFKD", text)
     text = "".join(character for character in text if not unicodedata.combining(character))
 
@@ -142,6 +143,7 @@ def normalize_text(value: object) -> str:
 
 
 def read_csv_flexible(csv_path: Path) -> pd.DataFrame:
+    # try common encodings because exported csv files are not always utf-8
     encodings = ["utf-8-sig", "utf-8", "cp1250", "latin1"]
     last_error: Optional[Exception] = None
 
@@ -161,6 +163,7 @@ def read_csv_flexible(csv_path: Path) -> pd.DataFrame:
 
 
 def find_column(dataframe: pd.DataFrame, aliases: list[str]) -> Optional[str]:
+    # compare normalized names instead of raw column names
     normalized_columns = {
         normalize_text(column): column
         for column in dataframe.columns
@@ -200,6 +203,7 @@ def clean_numeric_series(series: pd.Series) -> pd.Series:
         }
     )
 
+    # convert decimal comma values to normal numeric values
     return pd.to_numeric(cleaned, errors="coerce")
 
 
@@ -253,9 +257,7 @@ def normalize_boolean(value: object) -> str:
 def clean_name_from_filename(path: Path) -> str:
     stem = path.stem.replace("_", " ").replace("-", " ").strip()
 
-    # Uploaded files are saved as YYYYMMDD_HHMMSS_original_name.csv.
-    # ZIP members can also be extracted as 001_original_name.csv.
-    # These technical prefixes should never become sensor IDs in the UI.
+    # remove technical prefixes from uploaded file names
     stem = re.sub(r"^\d{8}\s+\d{6}\s+", "", stem)
     stem = re.sub(r"^\d{3}\s+", "", stem)
     stem = re.sub(r"\s+", " ", stem).strip()
@@ -316,6 +318,7 @@ def standardize_radiation_csv(csv_path: Path) -> pd.DataFrame:
     location_from_filename = clean_name_from_filename(csv_path)
     sensor_from_filename = location_from_filename.upper().replace(" ", "_")
 
+    # create one standard dataframe used by the rest of the pipeline
     standardized = pd.DataFrame()
 
     standardized["timestamp"] = raw[timestamp_column].astype(str).str.strip()

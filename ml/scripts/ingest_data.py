@@ -14,6 +14,7 @@ DEFAULT_CSV_PATH = ROOT_DIR / "backend" / "app" / "data" / "mock_radiation_measu
 
 
 def create_dataset_record(name: str, original_filename: str, row_count: int) -> int:
+    # create one dataset record before inserting raw measurements
     row = fetch_one(
         """
         INSERT INTO datasets (name, original_filename, source_type, row_count, status, is_active)
@@ -49,6 +50,7 @@ def create_dataset_record(name: str, original_filename: str, row_count: int) -> 
 
 
 def insert_raw_measurements(dataset_id: int, dataframe: pd.DataFrame) -> None:
+    # keep original extracted values in the raw layer
     rows = []
 
     for _, item in dataframe.iterrows():
@@ -89,6 +91,7 @@ def insert_raw_measurements(dataset_id: int, dataframe: pd.DataFrame) -> None:
 
 
 def is_supported_csv_member(member_name: str) -> bool:
+    # skip hidden mac folders and non csv files inside zip archives
     normalized = member_name.replace("\\", "/")
     parts = normalized.split("/")
     filename = parts[-1]
@@ -106,6 +109,7 @@ def is_supported_csv_member(member_name: str) -> bool:
 
 
 def load_standardized_csv_from_zip(zip_path: Path) -> pd.DataFrame:
+    # collect all readable csv files from one zip archive
     frames = []
 
     with tempfile.TemporaryDirectory() as temporary_directory:
@@ -127,6 +131,7 @@ def load_standardized_csv_from_zip(zip_path: Path) -> pd.DataFrame:
                 extracted_path = temporary_root / safe_name
                 extracted_path.write_bytes(archive.read(member))
 
+                # standardize each extracted csv before merging
                 standardized = standardize_radiation_csv(extracted_path)
 
                 if "location" in standardized.columns:
@@ -162,6 +167,7 @@ def load_standardized_csv_from_zip(zip_path: Path) -> pd.DataFrame:
 
 
 def standardize_dataset_file(dataset_path: Path) -> pd.DataFrame:
+    # use the same ingest flow for csv and zip uploads
     suffix = dataset_path.suffix.lower()
 
     if suffix == ".csv":
@@ -179,6 +185,7 @@ def ingest_csv(csv_path: Path) -> int:
     if not csv_path.exists():
         raise FileNotFoundError(f"Dataset file not found: {csv_path}")
 
+    # column names are mapped before saving raw values
     standardized_dataframe = standardize_dataset_file(csv_path)
 
     dataset_id = create_dataset_record(

@@ -19,6 +19,7 @@ def get_active_dataset_id() -> int:
 
 
 def fill_numeric_with_safe_median(series: pd.Series, default_value: float = 0.0) -> pd.Series:
+    # use median so one bad value does not affect the whole column
     numeric = pd.to_numeric(series, errors="coerce")
     median = numeric.median()
 
@@ -53,6 +54,7 @@ def load_clean_measurements(dataset_id: int) -> pd.DataFrame:
     if dataframe.empty:
         raise RuntimeError("No clean measurements found. Run data_preprocessing.py first.")
 
+    # keep timestamp as datetime for time based features
     dataframe["timestamp"] = pd.to_datetime(dataframe["timestamp"])
 
     return dataframe
@@ -61,6 +63,7 @@ def load_clean_measurements(dataset_id: int) -> pd.DataFrame:
 def build_features(dataframe: pd.DataFrame) -> pd.DataFrame:
     features = dataframe.copy()
 
+    # calculate rolling features separately for every sensor
     features = features.sort_values(["sensor_id", "timestamp"]).reset_index(drop=True)
 
     features["radiation_level"] = pd.to_numeric(features["radiation_level"], errors="coerce")
@@ -70,6 +73,7 @@ def build_features(dataframe: pd.DataFrame) -> pd.DataFrame:
     features = features.dropna(subset=["radiation_level"])
     features = features.reset_index(drop=True)
 
+    # basic time features used by the models
     features["hour_of_day"] = features["timestamp"].dt.hour
     features["day_of_week"] = features["timestamp"].dt.dayofweek
 
@@ -108,6 +112,7 @@ def replace_feature_measurements(dataset_id: int, features: pd.DataFrame) -> Non
         (dataset_id,),
     )
 
+    # recreate feature rows for the active dataset
     rows = []
 
     for _, item in features.iterrows():

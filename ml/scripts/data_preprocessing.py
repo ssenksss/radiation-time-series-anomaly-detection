@@ -24,6 +24,7 @@ def normalize_boolean(value) -> Optional[bool]:
     if value is None:
         return None
 
+    # accept common label values from csv files
     text = str(value).strip().lower()
 
     if text in {"true", "1", "yes", "y", "da"}:
@@ -36,6 +37,7 @@ def normalize_boolean(value) -> Optional[bool]:
 
 
 def fill_numeric_with_safe_median(series: pd.Series, default_value: float = 0.0) -> pd.Series:
+    # median is used for missing sensor values
     numeric = pd.to_numeric(series, errors="coerce")
     median = numeric.median()
 
@@ -46,6 +48,7 @@ def fill_numeric_with_safe_median(series: pd.Series, default_value: float = 0.0)
 
 
 def load_raw_measurements(dataset_id: int) -> pd.DataFrame:
+    # load raw rows from the first elt layer
     rows = fetch_all(
         """
         SELECT
@@ -74,6 +77,7 @@ def clean_raw_dataframe(dataframe: pd.DataFrame) -> pd.DataFrame:
 
     cleaned = dataframe.copy()
 
+    # parse timestamp and radiation value first
     cleaned["timestamp"] = pd.to_datetime(cleaned["timestamp_raw"], errors="coerce")
     cleaned["radiation_level"] = pd.to_numeric(cleaned["radiation_raw"], errors="coerce")
 
@@ -97,6 +101,7 @@ def clean_raw_dataframe(dataframe: pd.DataFrame) -> pd.DataFrame:
     cleaned.loc[cleaned["location"] == "", "location"] = "Unknown"
     cleaned.loc[cleaned["anomaly_type"] == "", "anomaly_type"] = "normal"
 
+    # invalid timestamp and radiation rows are removed
     cleaned = cleaned.dropna(subset=["timestamp", "radiation_level"])
     cleaned = cleaned.sort_values(["sensor_id", "timestamp"]).reset_index(drop=True)
 
@@ -129,6 +134,7 @@ def replace_clean_measurements(dataset_id: int, cleaned: pd.DataFrame) -> None:
         (dataset_id,),
     )
 
+    # insert cleaned values into the next elt layer
     rows = []
 
     for _, item in cleaned.iterrows():
@@ -168,6 +174,7 @@ def replace_clean_measurements(dataset_id: int, cleaned: pd.DataFrame) -> None:
 def preprocess_active_dataset() -> int:
     dataset_id = get_active_dataset_id()
 
+    # raw data is cleaned before feature engineering starts
     raw_dataframe = load_raw_measurements(dataset_id)
     cleaned_dataframe = clean_raw_dataframe(raw_dataframe)
     replace_clean_measurements(dataset_id, cleaned_dataframe)

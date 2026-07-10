@@ -19,6 +19,7 @@ def apply_analytics_views():
     if not SQL_PATH.exists():
         raise FileNotFoundError(f"SQL file not found: {SQL_PATH}")
 
+    # read all view definitions from one sql file
     sql = SQL_PATH.read_text(encoding="utf-8")
 
     print("Applying analytics views...")
@@ -30,6 +31,7 @@ def validate_views():
     print("")
     print("Validating created views...")
 
+    # simple check that every view can be queried
     for view_name in VIEWS:
         row = fetch_one(
             f"""

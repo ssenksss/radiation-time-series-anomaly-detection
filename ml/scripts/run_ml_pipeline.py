@@ -32,6 +32,7 @@ TrainFunction = Callable[[], Optional[TimingDict]]
 
 
 def get_active_model_id() -> str:
+    # read selected model from app (settings)
     row = fetch_one("SELECT value FROM app_settings WHERE key = 'active_model';")
 
     if not row:
@@ -70,6 +71,7 @@ def get_active_model_id() -> str:
 
 
 def normalize_timing(raw_timing: Optional[TimingDict]) -> TimingDict:
+    # keep the same timing format for all models
     if not raw_timing:
         return {
             "training_time_seconds": None,
@@ -83,6 +85,7 @@ def normalize_timing(raw_timing: Optional[TimingDict]) -> TimingDict:
 
 
 def run_model(model_label: str, train_function: TrainFunction) -> Tuple[str, TimingDict]:
+    # run one model and return timing for the report
     timing = train_function()
     return model_label, normalize_timing(timing)
 
@@ -132,6 +135,7 @@ def run_full_pipeline(csv_path: Path, skip_ingest: bool = False) -> None:
     print("Mode: FULL")
     print("=" * 60)
 
+    # full mode rebuilds the complete data and model pipeline
     if skip_ingest:
         print("Step 1/13 skipped: using current active dataset")
     else:
@@ -144,6 +148,7 @@ def run_full_pipeline(csv_path: Path, skip_ingest: bool = False) -> None:
     print("\nStep 3/13: clean_measurements -> feature_measurements")
     create_features_for_active_dataset()
 
+    # unsupervised models are trained first because labels are not required
     for step_number, (model_label, step_title, train_function) in enumerate(
             UNSUPERVISED_MODEL_STEPS,
             start=4,
@@ -175,6 +180,7 @@ def run_threshold_update_pipeline() -> None:
     print("=" * 60)
 
     print("Step 1/2: train only the active model")
+    # threshold update is faster because it avoids rebuilding all layers
     active_model_label, timing = train_active_model_only()
 
     print("\nStep 2/2: evaluate only the active model")

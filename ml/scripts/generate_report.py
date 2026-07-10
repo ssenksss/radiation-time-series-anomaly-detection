@@ -276,6 +276,7 @@ def get_missing_values_summary(dataset_id: int) -> pd.DataFrame:
 
 
 def get_model_metrics(dataset_id: int) -> pd.DataFrame:
+    # load metrics saved by the evaluation step
     rows = fetch_all(
         """
         SELECT
@@ -553,6 +554,7 @@ def export_metrics_csv(metrics: pd.DataFrame) -> Optional[Path]:
 
 
 def add_best_metric_columns(metrics: pd.DataFrame) -> pd.DataFrame:
+    # mark best values so the comparison table is easier to read
     if metrics.empty:
         return metrics.copy()
 
@@ -595,6 +597,7 @@ def export_best_marked_csv(metrics: pd.DataFrame) -> Optional[Path]:
 
 
 def build_best_results_table(metrics: pd.DataFrame) -> pd.DataFrame:
+    # compare metrics where higher and lower values have different meaning
     rows = []
 
     for metric in HIGHER_IS_BETTER:
@@ -905,6 +908,7 @@ def plot_confusion_matrix_group(dataframe: pd.DataFrame, path: Path, title: str)
 
 
 def plot_confusion_matrices(metrics: pd.DataFrame) -> list[Path]:
+    # keep supervised and unsupervised matrices in separate figures
     columns = ["model_name", "evaluation_mode", "tp", "tn", "fp", "fn"]
 
     if metrics.empty or not set(columns).issubset(metrics.columns):
@@ -944,6 +948,7 @@ def plot_confusion_matrices(metrics: pd.DataFrame) -> list[Path]:
 
 
 def plot_roc_and_pr_curves(dataset_id: int, metrics: pd.DataFrame) -> tuple[Optional[Path], Optional[Path]]:
+    # curves are created only for models with labeled test data
     if metrics.empty:
         return None, None
 
@@ -1251,6 +1256,7 @@ def remove_obsolete_figures() -> None:
             figure_path.unlink()
 
 def generate_figures(dataset_id: int, metrics: pd.DataFrame) -> list[Path]:
+    # regenerate figures used in the markdown report
     remove_obsolete_figures()
 
     generated_paths = []
@@ -1303,11 +1309,12 @@ def generate_figures(dataset_id: int, metrics: pd.DataFrame) -> list[Path]:
 
 
 def relative_output_path(path: Path) -> str:
-    # The report is stored in ml/outputs/reports, so links must be relative to that folder.
+    # keep figure links relative to the reports folder
     return Path(os.path.relpath(path, start=REPORTS_DIR)).as_posix()
 
 
 def build_report() -> str:
+    # build one report from database metrics, tables and figures
     dataset_id = get_active_dataset_id()
 
     dataset = get_dataset_summary(dataset_id)

@@ -85,6 +85,7 @@ def get_threshold() -> float:
 
 
 def load_labeled_feature_measurements(dataset_id: int) -> pd.DataFrame:
+    # load only rows that have original anomaly labels
     rows = fetch_all(
         """
         SELECT
@@ -114,11 +115,13 @@ def load_labeled_feature_measurements(dataset_id: int) -> pd.DataFrame:
     if dataframe.empty:
         raise RuntimeError("No labeled feature measurements found. Dataset must contain is_anomaly.")
 
+    # prepare timestamp and feature values for training
     dataframe["timestamp"] = pd.to_datetime(dataframe["timestamp"])
 
     for column in FEATURE_COLUMNS:
         dataframe[column] = pd.to_numeric(dataframe[column], errors="coerce")
 
+    # fill missing feature values before model training
     medians = dataframe[FEATURE_COLUMNS].median(numeric_only=True)
     dataframe[FEATURE_COLUMNS] = dataframe[FEATURE_COLUMNS].fillna(medians).fillna(0)
 
@@ -131,6 +134,7 @@ def load_labeled_feature_measurements(dataset_id: int) -> pd.DataFrame:
 
 
 def chronological_split(dataframe: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    # keep time order because measurements are time-series data
     sorted_dataframe = dataframe.sort_values("timestamp").reset_index(drop=True)
     split_index = int(len(sorted_dataframe) * TRAIN_RATIO)
 
@@ -183,6 +187,7 @@ def calculate_metrics(
     y_pred = np.asarray(y_pred).astype(int)
     y_score = np.asarray(y_score).astype(float)
 
+    # calculate confusion matrix values manually
     tp = int(((y_true == 1) & (y_pred == 1)).sum())
     tn = int(((y_true == 0) & (y_pred == 0)).sum())
     fp = int(((y_true == 0) & (y_pred == 1)).sum())
@@ -190,6 +195,7 @@ def calculate_metrics(
 
     total = tp + tn + fp + fn
 
+    # calculate standard classification metrics
     accuracy = ((tp + tn) / total) * 100 if total else 0
     precision = tp / (tp + fp) if (tp + fp) else 0
     recall = tp / (tp + fn) if (tp + fn) else 0
@@ -235,6 +241,7 @@ def train_predict_model(
         test_dataframe: pd.DataFrame,
         full_dataframe: pd.DataFrame,
 ) -> Tuple[pd.DataFrame, Dict[str, float]]:
+    # train one supervised model and collect its predictions
     output = train_function(
         train_dataframe,
         test_dataframe,
@@ -246,10 +253,12 @@ def train_predict_model(
     test_predictions = np.asarray(output["test_predictions"]).astype(int)
     test_scores = np.asarray(output["test_scores"]).astype(float)
 
+    # metrics are calculated only on the test part
     metrics = calculate_metrics(y_test, test_predictions, test_scores)
     metrics["training_time_seconds"] = output["training_time_seconds"]
     metrics["prediction_time_seconds"] = output["prediction_time_seconds"]
 
+    # full-dataset predictions are saved for dashboard display
     results = full_dataframe.copy()
     results["predicted_anomaly"] = np.asarray(output["full_predictions"]).astype(bool)
     results["anomaly_score"] = normalize_scores(np.asarray(output["full_scores"]).astype(float))
@@ -263,6 +272,7 @@ def replace_anomaly_results(
         results: pd.DataFrame,
         threshold: float,
 ) -> None:
+    # remove previous predictions for the same model and dataset
     execute_query(
         """
         DELETE FROM anomaly_results
@@ -272,6 +282,7 @@ def replace_anomaly_results(
         (dataset_id, model_name),
     )
 
+    # prepare prediction rows for database insert
     rows = []
 
     for _, item in results.iterrows():
@@ -394,6 +405,7 @@ def run_supervised_pipeline() -> None:
     print("=" * 60)
     print(f"Dataset ID: {dataset_id}")
 
+    # load labeled data and create chronological train/test split
     full_dataframe = load_labeled_feature_measurements(dataset_id)
     train_dataframe, test_dataframe = chronological_split(full_dataframe)
 
@@ -403,6 +415,7 @@ def run_supervised_pipeline() -> None:
     print(f"Train anomalies: {int(train_dataframe['original_label'].sum())}")
     print(f"Test anomalies: {int(test_dataframe['original_label'].sum())}")
 
+    # train each supervised model using the same train/test split
     for index, (model_name, _model_id, train_function) in enumerate(SUPERVISED_MODELS, start=1):
         print("\n" + "-" * 60)
         print(f"Step {index}/5: train/test {model_name}")

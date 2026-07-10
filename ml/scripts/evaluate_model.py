@@ -65,6 +65,7 @@ def keep_test_part(dataframe: pd.DataFrame) -> pd.DataFrame:
 
 
 def load_labeled_evaluation_data(dataset_id: int, model_name: str) -> pd.DataFrame:
+    # load predictions together with original labels for evaluation
     rows = fetch_all(
         """
         SELECT
@@ -134,6 +135,7 @@ def calculate_labeled_metrics(dataframe: pd.DataFrame, evaluation_mode: str) -> 
     y_pred = dataframe["predicted_anomaly"].astype(bool)
     y_score = pd.to_numeric(dataframe["anomaly_score"], errors="coerce").fillna(0)
 
+    # calculate standard metrics for labeled data
     accuracy = accuracy_score(y_true, y_pred) * 100
     precision = precision_score(y_true, y_pred, zero_division=0)
     recall = recall_score(y_true, y_pred, zero_division=0)
@@ -144,6 +146,7 @@ def calculate_labeled_metrics(dataframe: pd.DataFrame, evaluation_mode: str) -> 
     roc_auc = None
     pr_auc = None
 
+    # auc values are skipped if the test part has only one class
     if has_both_classes:
         roc_auc = roc_auc_score(y_true, y_score)
         pr_auc = average_precision_score(y_true, y_score)
@@ -183,6 +186,7 @@ def calculate_labeled_metrics(dataframe: pd.DataFrame, evaluation_mode: str) -> 
 
 
 def calculate_unsupervised_metrics(dataset_id: int, model_name: str) -> dict:
+    # without labels only detection counts and score statistics are saved
     summary = load_unsupervised_summary(dataset_id, model_name)
 
     return {
@@ -233,6 +237,7 @@ def attach_model_timing(metrics: dict, model_name: str, model_timings: Optional[
 
 
 def save_metrics(dataset_id: int, model_name: str, metrics: dict) -> None:
+    # replace old metrics for the same model and dataset
     execute_query(
         """
         DELETE FROM model_metrics
