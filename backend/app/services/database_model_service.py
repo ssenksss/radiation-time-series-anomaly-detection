@@ -704,7 +704,7 @@ def build_model_item(
         "totalRecords": total_records,
         "totalAnomalies": total_anomalies,
         "anomalyRate": anomaly_rate,
-                "f1Score": metrics.get("f1_score"),
+        "f1Score": metrics.get("f1_score"),
         "rocAuc": metrics.get("roc_auc"),
         "prAuc": metrics.get("pr_auc"),
         "tp": int(metrics.get("tp") or 0),
@@ -833,6 +833,13 @@ def get_model_info_from_database(
         ),
     ]
 
+    # for unlabeled real datasets, the full table shows only models that can work without labels
+    models_for_full_table = (
+        UNSUPERVISED_MODELS + SUPERVISED_MODELS
+        if has_labels
+        else UNSUPERVISED_MODELS
+    )
+
     all_model_results = [
         build_model_item(
             model["id"],
@@ -841,7 +848,7 @@ def get_model_info_from_database(
             dataset_id,
             has_labels,
         )
-        for model in UNSUPERVISED_MODELS + SUPERVISED_MODELS
+        for model in models_for_full_table
     ]
 
     response = {
