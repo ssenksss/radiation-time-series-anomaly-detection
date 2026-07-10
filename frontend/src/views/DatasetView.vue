@@ -117,6 +117,40 @@ const datasetName = computed(() => {
   return backendSummary.value?.datasetName ?? activeDataset.value?.name ?? 'Loading dataset...'
 })
 
+const formatBelgradeDateTime = (value: string | null | undefined) => {
+  if (!value) return 'N/A'
+
+  const normalizedValue = value.includes('T')
+    ? value
+    : value.replace(' ', 'T')
+
+  const utcValue = /Z$|[+-]\d{2}:\d{2}$/.test(normalizedValue)
+    ? normalizedValue
+    : `${normalizedValue}Z`
+
+  const date = new Date(utcValue)
+
+  if (Number.isNaN(date.getTime())) return 'N/A'
+
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Belgrade',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+    hourCycle: 'h23',
+  }).formatToParts(date)
+
+  const dateParts = Object.fromEntries(
+    parts.map((part) => [part.type, part.value])
+  )
+
+  return `${dateParts.year}-${dateParts.month}-${dateParts.day} ${dateParts.hour}:${dateParts.minute}:${dateParts.second}`
+}
+
 const datasetInfoText = computed(() => {
   if (isUploading.value) {
     return 'Status: Uploading dataset and running ML pipeline...'
@@ -131,7 +165,8 @@ const datasetInfoText = computed(() => {
   }
 
   const status = activeDataset.value?.status ?? 'active'
-  const uploadedAt = activeDataset.value?.uploadedAt ?? backendSummary.value?.lastUpdated ?? 'active'
+  const rawUploadedAt = activeDataset.value?.uploadedAt ?? backendSummary.value?.lastUpdated
+  const uploadedAt = rawUploadedAt ? formatBelgradeDateTime(rawUploadedAt) : 'active'
 
   return `Status: ${status} · ${uploadedAt}`
 })
@@ -167,7 +202,7 @@ const datasetTableRows = computed(() => {
     return datasets.value.map((dataset) => ({
       id: dataset.id,
       name: cleanDatasetName(dataset.originalFilename || dataset.name),
-      uploaded: dataset.uploadedAt,
+      uploaded: formatBelgradeDateTime(dataset.uploadedAt),
       size: `${dataset.rowCount} rows`,
       status: dataset.isActive ? 'Active' : dataset.status,
     }))
@@ -177,7 +212,9 @@ const datasetTableRows = computed(() => {
     {
       id: 0,
       name: datasetName.value,
-      uploaded: backendSummary.value?.lastUpdated || 'Loaded from backend',
+      uploaded: backendSummary.value?.lastUpdated
+        ? formatBelgradeDateTime(backendSummary.value.lastUpdated)
+        : 'Loaded from backend',
       size: `${Math.max(Number(dataPointsText.value), 1)} rows`,
       status: 'Active',
     },

@@ -1,17 +1,17 @@
 # Model Evaluation Report
 
-Generated at: **2026-07-10 12:21:27**
+Generated at: **2026-07-10 14:54:19**
 
 This report is produced by the project script after the model-evaluation step. It summarizes the dataset, used features, trained models, calculated metrics and generated plots.
 
 ## 1. Dataset Summary
 
-- Dataset ID: **40**
+- Dataset ID: **44**
 - Dataset name: **mock_radiation_measurements**
 - Original file: **mock_radiation_measurements.csv**
 - Source type: **csv**
 - Current status: **evaluated**
-- Uploaded at: **2026-07-05 16:09:08.776769**
+- Uploaded at: **2026-07-10 12:50:47.761566**
 - Time range: **2026-01-01 00:00:00 → 2026-01-07 22:39:00**
 - Number of sensors: **1**
 - Number of locations: **1**
@@ -102,20 +102,20 @@ The table below contains the stored metrics for all evaluated models. For labele
 
 | model_name | evaluation_mode | accuracy | precision_score | recall_score | f1_score | roc_auc | pr_auc | fpr | fnr | tp | tn | fp | fn | true_anomalies | total_records | total_anomalies | anomaly_rate | score_mean | score_std | score_variance | training_time_seconds | prediction_time_seconds | best_result_for |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| DBSCAN | labeled | 98.1700 | 0.4359 | 0.3400 | 0.3820 | 0.9898 | 0.6307 | 0.0075 | 0.6600 | 17 | 2928 | 22 | 33 | 50 | 3000 | 39 | 1.300 | 2.4077 | 1.6676 | 2.7807 | 0.4428 | 0.0003 | prediction_time_seconds |
-| ECOD | labeled | 98.2000 | 0.4667 | 0.5600 | 0.5091 | 0.9889 | 0.5453 | 0.0108 | 0.4400 | 28 | 2918 | 32 | 22 | 50 | 3000 | 60 | 2.000 | 0.2119 | 0.0947 | 0.0090 | 0.0678 | 0.0339 |  |
-| Gaussian Mixture Model | labeled | 98.1000 | 0.4286 | 0.4200 | 0.4242 | 0.9852 | 0.3966 | 0.0095 | 0.5800 | 21 | 2922 | 28 | 29 | 50 | 3000 | 49 | 1.633 | 0.0280 | 0.0494 | 0.0024 | 0.0203 | 0.0009 |  |
-| HBOS | labeled | 95.5700 | 0.2707 | 0.9800 | 0.4242 | 0.9928 | 0.7850 | 0.0447 | 0.0200 | 49 | 2818 | 132 | 1 | 50 | 3000 | 181 | 6.033 | 0.3545 | 0.1245 | 0.0155 | 1.4948 | 0.0048 |  |
-| Isolation Forest | labeled | 98.5700 | 0.5538 | 0.7200 | 0.6261 | 0.9915 | 0.6737 | 0.0098 | 0.2800 | 36 | 2921 | 29 | 14 | 50 | 3000 | 65 | 2.167 | -0.1415 | 0.0415 | 0.0017 | 0.1837 | 0.0978 | score_std, score_variance |
-| K-Means Distance | labeled | 98.9300 | 0.6875 | 0.6600 | 0.6735 | 0.9804 | 0.5303 | 0.0051 | 0.3400 | 33 | 2935 | 15 | 17 | 50 | 3000 | 48 | 1.600 | 1.8421 | 1.0528 | 1.1084 | 0.4099 | 0.0018 |  |
-| Local Outlier Factor | labeled | 93.0300 | 0.1045 | 0.4200 | 0.1673 | 0.4413 | 0.2197 | 0.0610 | 0.5800 | 21 | 2770 | 180 | 29 | 50 | 3000 | 201 | 6.700 | -0.3728 | 0.2909 | 0.0846 | 0.1523 | 0.4396 |  |
-| One-Class SVM | labeled | 93.5300 | 0.2049 | 1.0000 | 0.3401 | 0.9861 | 0.3914 | 0.0658 | 0.0000 | 50 | 2756 | 194 | 0 | 50 | 3000 | 244 | 8.133 | -0.8232 | 0.5820 | 0.3387 | 0.0312 | 0.0755 | recall_score, fnr |
-| PCA Reconstruction Error | labeled | 97.9700 | 0.4179 | 0.5600 | 0.4786 | 0.9700 | 0.4054 | 0.0132 | 0.4400 | 28 | 2911 | 39 | 22 | 50 | 3000 | 67 | 2.233 | 0.4097 | 0.6986 | 0.4880 | 0.0124 | 0.0019 |  |
-| Decision Tree | supervised | 99.9700 | 1.0000 | 0.9800 | 0.9899 | 0.9900 | 0.9803 | 0.0000 | 0.0200 | 49 | 2950 | 0 | 1 | 50 | 3000 | 49 | 1.633 | 0.0163 | 0.1268 | 0.0161 | 0.0090 | 0.0021 | precision_score, fpr |
-| Gradient Boosting | supervised | 100.0000 | 1.0000 | 1.0000 | 1.0000 | 1.0000 | 1.0000 | 0.0000 | 0.0000 | 50 | 2950 | 0 | 0 | 50 | 3000 | 50 | 1.667 | 0.0167 | 0.1236 | 0.0153 | 0.4846 | 0.0081 | accuracy, precision_score, recall_score, f1_score, roc_auc, pr_auc, fpr, fnr |
-| KNN Classifier | supervised | 99.9700 | 1.0000 | 0.9800 | 0.9899 | 1.0000 | 1.0000 | 0.0000 | 0.0200 | 49 | 2950 | 0 | 1 | 50 | 3000 | 49 | 1.633 | 0.0165 | 0.1266 | 0.0160 | 0.0034 | 0.3782 | precision_score, roc_auc, pr_auc, fpr, training_time_seconds |
-| Logistic Regression | supervised | 94.9700 | 0.2410 | 0.9400 | 0.3837 | 0.9743 | 0.2372 | 0.0502 | 0.0600 | 47 | 2802 | 148 | 3 | 50 | 3000 | 195 | 6.500 | 0.1863 | 0.2074 | 0.0430 | 0.0204 | 0.0005 |  |
-| Random Forest | supervised | 99.9700 | 1.0000 | 0.9800 | 0.9899 | 1.0000 | 1.0000 | 0.0000 | 0.0200 | 49 | 2950 | 0 | 1 | 50 | 3000 | 49 | 1.633 | 0.0185 | 0.1058 | 0.0112 | 0.1700 | 0.1071 | precision_score, roc_auc, pr_auc, fpr |
+| DBSCAN | labeled | 98.1700 | 0.4359 | 0.3400 | 0.3820 | 0.9898 | 0.6307 | 0.0075 | 0.6600 | 17 | 2928 | 22 | 33 | 50 | 3000 | 39 | 1.300 | 2.4077 | 1.6676 | 2.7807 | 0.4091 | 0.0003 | prediction_time_seconds |
+| ECOD | labeled | 82.3700 | 0.0864 | 1.0000 | 0.1590 | 0.9889 | 0.5453 | 0.1793 | 0.0000 | 50 | 2421 | 529 | 0 | 50 | 3000 | 579 | 19.300 | 0.2119 | 0.0947 | 0.0090 | 0.0685 | 0.0340 | recall_score, fnr |
+| Gaussian Mixture Model | labeled | 75.1000 | 0.0627 | 1.0000 | 0.1181 | 0.9852 | 0.3966 | 0.2532 | 0.0000 | 50 | 2203 | 747 | 0 | 50 | 3000 | 797 | 26.567 | 0.0280 | 0.0494 | 0.0024 | 0.0266 | 0.0010 | recall_score, fnr |
+| HBOS | labeled | 7.7300 | 0.0177 | 1.0000 | 0.0349 | 0.9928 | 0.7850 | 0.9383 | 0.0000 | 50 | 182 | 2768 | 0 | 50 | 3000 | 2818 | 93.933 | 0.3545 | 0.1245 | 0.0155 | 1.5232 | 0.0048 | recall_score, fnr |
+| Isolation Forest | labeled | 65.0700 | 0.0455 | 1.0000 | 0.0871 | 0.9915 | 0.6737 | 0.3553 | 0.0000 | 50 | 1902 | 1048 | 0 | 50 | 3000 | 1098 | 36.600 | 0.0015 | 0.0415 | 0.0017 | 0.1780 | 0.0978 | recall_score, fnr, score_std, score_variance |
+| K-Means Distance | labeled | 76.1700 | 0.0642 | 0.9800 | 0.1205 | 0.9804 | 0.5303 | 0.2420 | 0.0200 | 49 | 2236 | 714 | 1 | 50 | 3000 | 763 | 25.433 | 1.8421 | 1.0528 | 1.1084 | 0.3613 | 0.0011 |  |
+| Local Outlier Factor | labeled | 1.7000 | 0.0085 | 0.5000 | 0.0167 | 0.4413 | 0.2197 | 0.9912 | 0.5000 | 25 | 26 | 2924 | 25 | 50 | 3000 | 2949 | 98.300 | 0.3255 | 0.2909 | 0.0846 | 0.1543 | 0.4419 |  |
+| One-Class SVM | labeled | 82.6000 | 0.0874 | 1.0000 | 0.1608 | 0.9936 | 0.5966 | 0.1769 | 0.0000 | 50 | 2428 | 522 | 0 | 50 | 3000 | 572 | 19.067 | -17.1899 | 75.0010 | 5625.1516 | 0.3186 | 0.7693 | recall_score, fnr |
+| PCA Reconstruction Error | labeled | 78.7300 | 0.0714 | 0.9800 | 0.1332 | 0.9700 | 0.4054 | 0.2159 | 0.0200 | 49 | 2313 | 637 | 1 | 50 | 3000 | 686 | 22.867 | 0.4097 | 0.6986 | 0.4880 | 0.0122 | 0.0015 |  |
+| Decision Tree | supervised | 99.9700 | 1.0000 | 0.9800 | 0.9899 | 0.9900 | 0.9803 | 0.0000 | 0.0200 | 49 | 2950 | 0 | 1 | 50 | 3000 | 49 | 1.633 | 0.0163 | 0.1268 | 0.0161 | 0.0139 | 0.0023 | precision_score, fpr |
+| Gradient Boosting | supervised | 100.0000 | 1.0000 | 1.0000 | 1.0000 | 1.0000 | 1.0000 | 0.0000 | 0.0000 | 50 | 2950 | 0 | 0 | 50 | 3000 | 50 | 1.667 | 0.0167 | 0.1236 | 0.0153 | 0.4860 | 0.0073 | accuracy, precision_score, recall_score, f1_score, roc_auc, pr_auc, fpr, fnr |
+| KNN Classifier | supervised | 99.9700 | 1.0000 | 0.9800 | 0.9899 | 1.0000 | 1.0000 | 0.0000 | 0.0200 | 49 | 2950 | 0 | 1 | 50 | 3000 | 49 | 1.633 | 0.0165 | 0.1266 | 0.0160 | 0.0033 | 0.3787 | precision_score, roc_auc, pr_auc, fpr, training_time_seconds |
+| Logistic Regression | supervised | 94.9700 | 0.2410 | 0.9400 | 0.3837 | 0.9743 | 0.2372 | 0.0502 | 0.0600 | 47 | 2802 | 148 | 3 | 50 | 3000 | 195 | 6.500 | 0.1863 | 0.2074 | 0.0430 | 0.0409 | 0.0015 |  |
+| Random Forest | supervised | 99.9700 | 1.0000 | 0.9800 | 0.9899 | 1.0000 | 1.0000 | 0.0000 | 0.0200 | 49 | 2950 | 0 | 1 | 50 | 3000 | 49 | 1.633 | 0.0185 | 0.1058 | 0.0112 | 0.2066 | 0.1092 | precision_score, roc_auc, pr_auc, fpr |
 
 Full metrics CSV: `../tables/model_metrics_full.csv`
 
@@ -129,25 +129,25 @@ If more than one model has the same best value for a metric, all of them are lis
 | --- | --- | --- | --- |
 | accuracy | Gradient Boosting | 100.0000 | higher is better |
 | precision_score | Decision Tree, Gradient Boosting, KNN Classifier, Random Forest | 1.0000 | higher is better |
-| recall_score | One-Class SVM, Gradient Boosting | 1.0000 | higher is better |
+| recall_score | ECOD, Gaussian Mixture Model, HBOS, Isolation Forest, One-Class SVM, Gradient Boosting | 1.0000 | higher is better |
 | f1_score | Gradient Boosting | 1.0000 | higher is better |
 | roc_auc | Gradient Boosting, KNN Classifier, Random Forest | 1.0000 | higher is better |
 | pr_auc | Gradient Boosting, KNN Classifier, Random Forest | 1.0000 | higher is better |
 | fpr | Decision Tree, Gradient Boosting, KNN Classifier, Random Forest | 0.0000 | lower is better |
-| fnr | One-Class SVM, Gradient Boosting | 0.0000 | lower is better |
+| fnr | ECOD, Gaussian Mixture Model, HBOS, Isolation Forest, One-Class SVM, Gradient Boosting | 0.0000 | lower is better |
 | score_std | Isolation Forest | 0.0415 | lower is better |
 | score_variance | Isolation Forest | 0.0017 | lower is better |
-| training_time_seconds | KNN Classifier | 0.0034 | lower is better |
+| training_time_seconds | KNN Classifier | 0.0033 | lower is better |
 | prediction_time_seconds | DBSCAN | 0.0003 | lower is better |
 
 ## 10. Result Interpretation
 
 Accuracy is shown in the table, but I did not use it as the only criterion. The dataset is imbalanced, because normal measurements are much more common than anomalies. For that reason, precision, recall, F1-score, PR-AUC and the confusion matrix are more useful for comparing the models.
 
-Among the unsupervised models, K-Means Distance had the best balanced result on the labeled test split, with F1-score 0.673. In this run it made the best compromise between finding anomalies and avoiding too many false alarms.
-Isolation Forest also gave a stable result, with F1-score 0.626. This model is useful for the practical version of the application because it can be trained without manually prepared labels.
-HBOS was very sensitive to anomalies, with recall 0.980, but its precision was lower (0.271). This means that it detected many true anomalies, but it also produced more false alarms.
-One-Class SVM reached recall 1.000, while precision was 0.205. This can be useful when missing an anomaly is a bigger problem than having extra false alarms, but it is not ideal if false alarms need to be low.
+Among the unsupervised models, K-Means Distance had the best balanced result on the labeled test split, with F1-score 0.120. In this run it made the best compromise between finding anomalies and avoiding too many false alarms.
+Isolation Forest also gave a stable result, with F1-score 0.087. This model is useful for the practical version of the application because it can be trained without manually prepared labels.
+HBOS was very sensitive to anomalies, with recall 1.000, but its precision was lower (0.018). This means that it detected many true anomalies, but it also produced more false alarms.
+One-Class SVM reached recall 1.000, while precision was 0.087. This can be useful when missing an anomaly is a bigger problem than having extra false alarms, but it is not ideal if false alarms need to be low.
 
 ### Note on very high supervised results
 
