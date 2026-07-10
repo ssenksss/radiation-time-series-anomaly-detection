@@ -1,21 +1,25 @@
 # Radiation Monitoring Anomaly Detection System
 
-**Bachelor’s thesis project: Radiation Level Monitoring System with Traditionally Trained Machine Learning Models and a Decision Support Framework Developed Using Generative Artificial Intelligence**
+**Bachelor’s thesis project:** Radiation Level Monitoring System with Traditionally Trained Machine Learning Models and a Decision Support Framework Developed Using Generative Artificial Intelligence
 
 This project is a prototype web application for monitoring radiation measurements and detecting anomalous values in time-series data. It was developed as part of my Bachelor’s thesis.
 
-The application currently works with CSV and ZIP datasets. Imported data is stored in PostgreSQL, cleaned, transformed into features and then used for anomaly detection and model comparison. The structure of the project also leaves space for a later extension to real-time measurements.
+The application works with CSV and ZIP datasets. Imported data is stored in PostgreSQL, cleaned, transformed into features and then used for anomaly detection and model comparison. The current version is file-based, while real-time data processing is planned as a future extension.
+
+The machine learning part of the project is based on traditional machine learning models. The models are trained with standard Python libraries and evaluated with standard classification metrics.
+
+This is an academic prototype and should not be treated as a certified radiation safety system.
 
 ## Project idea
 
-The main idea is to load radiation measurement data and use machine learning models to detect unusual measurements.
+The goal of the project is to connect data import, database storage, machine learning and dashboard visualization in one system.
 
 The system supports two types of datasets:
 
 - datasets with an `is_anomaly` column
 - datasets without anomaly labels
 
-If `is_anomaly` exists, it is used for model evaluation. If labels do not exist, the system still detects possible anomalies, but it does not calculate supervised metrics such as accuracy, precision or recall.
+If labels exist, they are used for model evaluation. If labels do not exist, the system still detects unusual measurements, but it does not calculate supervised metrics such as accuracy, precision or recall.
 
 ## Data flow
 
@@ -35,106 +39,89 @@ model_metrics
 dashboard and reports
 ```
 
-The database keeps imported data, cleaned data, features, model predictions and metrics in separate tables.
-
 ## Main features
 
 - CSV and ZIP dataset import
-- PostgreSQL storage
-- ELT data preparation
-- anomaly detection with traditional ML models
-- support for labeled and unlabeled datasets
-- model comparison view
-- anomaly log and alert status
-- dashboard for radiation level visualization
-- generated reports, tables and plots for model evaluation
+- PostgreSQL database storage
+- raw, clean and feature data layers
+- supervised and unsupervised ML models
+- anomaly detection and anomaly score calculation
+- model comparison with standard metrics
+- dashboard with charts, alerts and anomaly log
+- generated tables, reports and plots for evaluation
 
-## Technologies
+## Technology stack
 
 **Frontend:** Vue 3, TypeScript, Vite, Chart.js, Pinia  
 **Backend:** Python, FastAPI, Uvicorn  
-**Database:** PostgreSQL  
-**ML/Data processing:** pandas, NumPy, scikit-learn, PyOD
+**Database:** PostgreSQL, SQL views  
+**Machine learning:** pandas, NumPy, scikit-learn, PyOD
 
 ## Database tables
 
 | Table | Purpose |
 |---|---|
 | `datasets` | information about imported datasets |
-| `raw_measurements` | original uploaded measurements |
+| `raw_measurements` | original uploaded measurement rows |
 | `clean_measurements` | cleaned and standardized measurements |
-| `feature_measurements` | prepared ML features |
+| `feature_measurements` | features prepared for ML models |
 | `anomaly_results` | model predictions and anomaly scores |
 | `model_metrics` | evaluation metrics for each model |
-| `app_settings` | active dataset, selected model and threshold settings |
+| `app_settings` | active dataset, selected model and threshold |
 
-## Machine learning workflow
+## Machine learning
 
-The ML workflow includes:
+The ML workflow includes data cleaning, feature creation, chronological train/test split, model training, prediction and metric calculation.
 
-1. importing data
-2. cleaning data
-3. creating features
-4. splitting data chronologically
-5. training models
-6. saving predictions and metrics
-7. showing results in the dashboard
-
-Since radiation measurements are time-series data, the train/test split is chronological:
+Because the data is a time series, the split is chronological:
 
 ```text
 first 70% of records -> training data
 last 30% of records  -> test data
 ```
 
-## Models
-
-The project uses both unsupervised and supervised models.
-
 ### Unsupervised models
 
-These models are useful when real datasets do not contain anomaly labels.
+These models are used because real measurement data may not contain prepared anomaly labels.
 
-| Model | Short explanation |
+| Model | Short description |
 |---|---|
 | Isolation Forest | isolates unusual records |
-| Local Outlier Factor | compares a record with its local neighbourhood |
-| One-Class SVM | learns the boundary of normal measurements |
+| Local Outlier Factor | checks local neighbourhood density |
+| One-Class SVM | learns the boundary of normal data |
 | DBSCAN | marks low-density points as noise |
-| K-Means Distance | uses distance from the nearest cluster center |
+| K-Means Distance | uses distance from cluster centers |
 | Gaussian Mixture Model | uses probability under learned distributions |
 | PCA Reconstruction Error | uses reconstruction error |
-| HBOS | uses histogram-based outlier scoring |
-| ECOD | uses distribution-based outlier scoring |
+| HBOS | histogram-based outlier model |
+| ECOD | distribution-based outlier model |
 
 ### Supervised models
 
-These models are used only when the dataset contains `is_anomaly` labels.
+These models are used only when the dataset contains original labels.
 
-| Model | Short explanation |
+| Model | Short description |
 |---|---|
 | Logistic Regression | simple baseline classifier |
-| Decision Tree | interpretable classifier |
+| Decision Tree | interpretable classification model |
 | Random Forest | ensemble classifier |
-| Gradient Boosting | ensemble model trained step by step |
+| Gradient Boosting | boosting-based ensemble model |
 | KNN Classifier | distance-based classifier |
 
 ## Evaluation
 
-For labeled datasets, the following metrics are calculated:
+For labeled datasets, the models are evaluated with classification metrics:
 
 - accuracy
 - precision
 - recall
 - F1-score
-- ROC-AUC
-- PR-AUC
+- ROC-AUC and PR-AUC
 - FPR and FNR
-- TP, TN, FP and FN
-- training time
-- prediction time
+- confusion matrix values
+- training and prediction time
 
-Accuracy is shown, but it is not the only metric used for comparison because anomalies are much rarer than normal measurements.
+For unlabeled datasets, the system reports detected anomalies, anomaly rate and anomaly score statistics.
 
 Generated evaluation files are stored in:
 
@@ -147,11 +134,11 @@ ml/outputs/reports/
 ## Project structure
 
 ```text
-backend/      FastAPI backend
-frontend/     Vue frontend
-database/     SQL schema and views
-ml/           ML models, scripts and outputs
-docs/         additional documentation
+backend/      FastAPI backend and services
+frontend/     Vue application
+database/     schema, seed data and SQL views
+ml/           model training, scripts and outputs
+docs/         additional project documentation
 ```
 
 ## Running the project
@@ -195,6 +182,6 @@ python ml/scripts/run_ml_pipeline.py
 ## Notes
 
 - The current version works with imported CSV/ZIP datasets.
-- Real-time processing is planned as a possible extension.
+- Real-time processing is planned as a future extension.
 - Supervised metrics are calculated only when original labels exist.
-- For unlabeled datasets, the application reports detected anomalies and anomaly score statistics.
+- Unlabeled datasets are evaluated through anomaly counts and score statistics.
