@@ -19,6 +19,7 @@ import time
 from typing import Dict, Tuple
 
 import pandas as pd
+
 from sklearn.neighbors import LocalOutlierFactor
 from sklearn.preprocessing import StandardScaler
 
@@ -26,81 +27,180 @@ from ml.models.model_training_utils import (
     FEATURE_COLUMNS,
     add_result_columns,
     build_timing,
-    calculate_contamination_from_threshold,
     chronological_train_test_split,
+    convert_feature_columns_to_numeric,
+    fill_missing_features_from_train,
     get_active_dataset_id,
-    get_threshold,
     load_feature_measurements,
     mark_dataset_as_model_trained,
     print_training_summary,
     replace_anomaly_results,
-    safe_fill_feature_columns,
 )
 
 
 MODEL_NAME = "Local Outlier Factor"
 
+N_NEIGHBORS = 20
 
-def train_lof(dataframe: pd.DataFrame, threshold: float) -> Tuple[pd.DataFrame, Dict[str, float]]:
-    model_dataframe = safe_fill_feature_columns(dataframe)
-    train_dataframe, test_dataframe = chronological_train_test_split(model_dataframe)
 
-    contamination = calculate_contamination_from_threshold(train_dataframe, threshold)
+def train_lof(
+    dataframe: pd.DataFrame,
+) -> Tuple[pd.DataFrame, Dict[str, float]]:
 
-    # number of neighbors is adjusted to dataset size
-    n_neighbors = min(35, max(5, len(train_dataframe) // 50))
-    n_neighbors = min(n_neighbors, max(2, len(train_dataframe) - 1))
+    model_dataframe = convert_feature_columns_to_numeric(
+        dataframe.copy()
+    )
+
+    train_dataframe, test_dataframe = chronological_train_test_split(
+        model_dataframe
+    )
+
+    train_ids = set(
+        train_dataframe["id"].tolist()
+    )
+
+    test_ids = set(
+        test_dataframe["id"].tolist()
+    )
+
+    train_dataframe, test_dataframe = fill_missing_features_from_train(
+        train_dataframe,
+        test_dataframe,
+    )
+
+    train_medians = train_dataframe[
+        FEATURE_COLUMNS
+    ].median(numeric_only=True)
+
+    model_dataframe[FEATURE_COLUMNS] = (
+        model_dataframe[FEATURE_COLUMNS]
+        .fillna(train_medians)
+        .fillna(0)
+    )
 
     training_started_at = time.time()
 
-    # novelty mode allows lof to score rows after fitting
     scaler = StandardScaler()
-    train_features = scaler.fit_transform(train_dataframe[FEATURE_COLUMNS])
-    all_features = scaler.transform(model_dataframe[FEATURE_COLUMNS])
 
-    # lof compares local density with neighboring records
-    model = LocalOutlierFactor(
-        n_neighbors=n_neighbors,
-        contamination=contamination,
-        novelty=True,
+    train_features = scaler.fit_transform(
+        train_dataframe[FEATURE_COLUMNS]
     )
-    model.fit(train_features)
 
-    training_time_seconds = time.time() - training_started_at
+    model = LocalOutlierFactor(
+        n_neighbors=N_NEIGHBORS,
+        novelty=True,
+        contamination="auto",
+    )
+
+    model.fit(
+        train_features
+    )
+
+    training_time_seconds = (
+        time.time() - training_started_at
+    )
+
+    # prediction timing is measured only on the test set
+    test_features = scaler.transform(
+        test_dataframe[FEATURE_COLUMNS]
+    )
 
     prediction_started_at = time.time()
-    predictions = model.predict(all_features)
 
-    # negative decision score is used so larger score means more anomalous
-    anomaly_scores = -model.decision_function(all_features)
-    prediction_time_seconds = time.time() - prediction_started_at
+    model.decision_function(
+        test_features
+    )
+
+    prediction_time_seconds = (
+        time.time() - prediction_started_at
+    )
+
+    # full predictions are stored for the application
+    all_features = scaler.transform(
+        model_dataframe[FEATURE_COLUMNS]
+    )
+
+    raw_scores = model.decision_function(
+        all_features
+    )
+
+    anomaly_scores = -raw_scores
+
+    predicted_anomaly = (
+        anomaly_scores > 0
+    )
 
     results = add_result_columns(
         dataframe=model_dataframe,
-        predicted_anomaly=predictions == -1,
+        predicted_anomaly=predicted_anomaly,
         anomaly_scores=anomaly_scores,
-        threshold=threshold,
     )
 
-    print(f"Threshold used for LOF sensitivity: {threshold}")
-    print(f"Calculated contamination: {contamination}")
-    print(f"LOF n_neighbors: {n_neighbors}")
-    print(f"Train rows: {len(train_dataframe)}")
-    print(f"Test rows: {len(test_dataframe)}")
+    results["evaluation_split"] = "full"
 
-    return results, build_timing(training_time_seconds, prediction_time_seconds)
+    results.loc[
+        results["id"].isin(train_ids),
+        "evaluation_split",
+    ] = "train"
+
+    results.loc[
+        results["id"].isin(test_ids),
+        "evaluation_split",
+    ] = "test"
+
+    print(
+        f"LOF n_neighbors: {N_NEIGHBORS}"
+    )
+
+    print(
+        "LOF decision rule: anomaly_score > 0"
+    )
+
+    print(
+        "LOF uses the native learned decision boundary"
+    )
+
+    print(
+        f"Train rows: {len(train_dataframe)}"
+    )
+
+    print(
+        f"Test rows: {len(test_dataframe)}"
+    )
+
+    return results, build_timing(
+        training_time_seconds,
+        prediction_time_seconds,
+    )
 
 
 def train_lof_for_active_dataset() -> Dict[str, float]:
+
     dataset_id = get_active_dataset_id()
-    threshold = get_threshold()
 
-    feature_dataframe = load_feature_measurements(dataset_id)
-    result_dataframe, timing = train_lof(feature_dataframe, threshold)
-    replace_anomaly_results(dataset_id, MODEL_NAME, result_dataframe)
-    mark_dataset_as_model_trained(dataset_id)
+    feature_dataframe = load_feature_measurements(
+        dataset_id
+    )
 
-    print_training_summary(MODEL_NAME, dataset_id, result_dataframe)
+    result_dataframe, timing = train_lof(
+        feature_dataframe,
+    )
+
+    replace_anomaly_results(
+        dataset_id,
+        MODEL_NAME,
+        result_dataframe,
+    )
+
+    mark_dataset_as_model_trained(
+        dataset_id
+    )
+
+    print_training_summary(
+        MODEL_NAME,
+        dataset_id,
+        result_dataframe,
+    )
 
     return timing
 

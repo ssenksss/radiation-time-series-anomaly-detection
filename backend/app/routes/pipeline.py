@@ -17,6 +17,6 @@ def read_pipeline_status():
 @router.post("/pipeline/run")
 def run_pipeline(
         background_tasks: BackgroundTasks,
-        mode: str = Query(default="threshold-update"),
+        mode: str = Query(default="full"),
 ):
     return start_pipeline_in_background(background_tasks, mode=mode)

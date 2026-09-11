@@ -1,7 +1,6 @@
 from pathlib import Path
 
-from db import execute_query, fetch_one
-
+from ml.scripts.db import execute_query, fetch_one
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 SQL_PATH = ROOT_DIR / "database" / "analytics_views.sql"

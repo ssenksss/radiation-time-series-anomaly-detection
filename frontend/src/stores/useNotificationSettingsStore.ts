@@ -1,6 +1,9 @@
 import { reactive } from 'vue'
 
-export type AlertSeverity = 'Critical only' | 'High + Critical' | 'All anomalies'
+export type AlertSeverity =
+  'Critical only'
+  | 'Warning + Critical'
+  | 'All alerts'
 export type NotificationFrequency = 'Immediate' | 'Daily summary'
 
 export interface NotificationSettingsState {

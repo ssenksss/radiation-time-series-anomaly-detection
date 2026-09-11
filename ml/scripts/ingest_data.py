@@ -17,24 +17,23 @@ def create_dataset_record(name: str, original_filename: str, row_count: int) -> 
     # create one dataset record before inserting raw measurements
     row = fetch_one(
         """
-        INSERT INTO datasets (name, original_filename, source_type, row_count, status, is_active)
+        INSERT INTO datasets (
+            name,
+            original_filename,
+            source_type,
+            row_count,
+            status,
+            is_active
+        )
         VALUES (%s, %s, %s, %s, %s, %s)
         RETURNING id;
         """,
-        (name, original_filename, "csv", row_count, "raw_loaded", True),
+        (name, original_filename, "csv", row_count, "raw_loaded", False),
     )
 
     dataset_id = int(row["id"])
 
-    execute_query(
-        """
-        UPDATE datasets
-        SET is_active = FALSE
-        WHERE id <> %s;
-        """,
-        (dataset_id,),
-    )
-
+    # store the selected dataset in one central application setting
     execute_query(
         """
         INSERT INTO app_settings (key, value)

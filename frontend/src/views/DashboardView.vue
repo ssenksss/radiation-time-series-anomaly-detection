@@ -15,6 +15,8 @@ import type { Measurement, ModelComparisonItem, ModelInfo, Summary } from '../ty
 
 const router = useRouter()
 
+const MAX_CHART_POINTS = 500
+
 const isModelModalOpen = ref(false)
 const isLogModalOpen = ref(false)
 const alertVisible = ref(true)
@@ -87,29 +89,90 @@ const formatSeconds = (value: number | null | undefined) => {
   return `${Number(value).toFixed(4)}s`
 }
 
-const formatChartLabel = (timestamp: string) => {
-  const parts = timestamp.split(' ')
-  return parts[1]?.slice(0, 5) ?? timestamp
-}
-
-const formatAnomalyType = (type: string | null | undefined) => {
-  if (!type) return 'Normal'
+const getDetectionLabel = (type: string | null | undefined) => {
+  if (!type) return 'None'
 
   const normalizedType = type.toLowerCase().replaceAll(' ', '_')
 
   const labels: Record<string, string> = {
-    normal: 'Normal',
-    warning: 'Warning',
-    spike: 'Spike',
-
-    threshold_detection: 'Warning',
-    model_detection: 'Warning',
-    ml_detected: 'Warning',
-    sustained_increase: 'Warning',
-    sensor_drop: 'Warning',
+    normal: 'None',
+    warning: 'Threshold',
+    critical: 'ML + Threshold',
+    ml_anomaly: 'ML Model',
+    threshold_detection: 'Threshold',
+    model_detection: 'ML Model',
+    ml_detected: 'ML Model',
+    spike: 'ML + Threshold',
+    sustained_increase: 'Threshold',
+    sensor_drop: 'Threshold',
   }
 
   return labels[normalizedType] ?? normalizedType.replaceAll('_', ' ')
+}
+
+const getDetectionType = (type: string | null | undefined) => {
+  const normalizedType = type?.toLowerCase().replaceAll(' ', '_')
+
+  if (normalizedType === 'critical' || normalizedType === 'spike') return 'combined'
+  if (
+    normalizedType === 'ml_anomaly' ||
+    normalizedType === 'model_detection' ||
+    normalizedType === 'ml_detected'
+  ) {
+    return 'model'
+  }
+  if (
+    normalizedType === 'warning' ||
+    normalizedType === 'threshold_detection' ||
+    normalizedType === 'sustained_increase' ||
+    normalizedType === 'sensor_drop'
+  ) {
+    return 'threshold'
+  }
+
+  return 'none'
+}
+
+const getDashboardStatus = (status: string | null | undefined) => {
+  if (status === 'Critical') return { label: 'Critical', type: 'critical' }
+  if (status === 'Warning') return { label: 'Warning', type: 'warning' }
+  if (status === 'ML Anomaly') return { label: 'Detected', type: 'detected' }
+
+  return { label: 'Clear', type: 'normal' }
+}
+
+const reduceChartPoints = (rows: Measurement[]) => {
+  if (rows.length <= MAX_CHART_POINTS) return rows
+
+  const selectedIndexes = new Set<number>([0, rows.length - 1])
+
+  rows.forEach((item, index) => {
+    if (item.isAnomaly) selectedIndexes.add(index)
+  })
+
+  if (selectedIndexes.size > MAX_CHART_POINTS) {
+    const anomalyIndexes = [...selectedIndexes].sort((a, b) => a - b)
+    const anomalyStep = Math.ceil(anomalyIndexes.length / MAX_CHART_POINTS)
+
+    return anomalyIndexes
+        .filter((_, index) => index % anomalyStep === 0)
+        .slice(0, MAX_CHART_POINTS)
+        .map((index) => rows[index])
+  }
+
+  const remainingPlaces = MAX_CHART_POINTS - selectedIndexes.size
+
+  if (remainingPlaces > 0) {
+    const regularStep = Math.max(1, Math.ceil(rows.length / remainingPlaces))
+
+    for (let index = 0; index < rows.length && selectedIndexes.size < MAX_CHART_POINTS; index += regularStep) {
+      selectedIndexes.add(index)
+    }
+  }
+
+  return [...selectedIndexes]
+      .sort((a, b) => a - b)
+      .map((index) => rows[index])
 }
 
 const latestAnomaly = computed(() => anomalies.value[0] ?? null)
@@ -118,16 +181,18 @@ const showAlert = computed(() => {
   return alertVisible.value && anomalies.value.length > 0
 })
 
+const chartMeasurements = computed(() => reduceChartPoints(measurements.value))
+
 const chartLabels = computed(() =>
-    measurements.value.map((item) => formatChartLabel(item.timestamp)),
+    chartMeasurements.value.map((item) => item.timestamp),
 )
 
 const chartValues = computed(() =>
-    measurements.value.map((item) => item.radiationLevel),
+    chartMeasurements.value.map((item) => item.radiationLevel),
 )
 
 const chartAnomalyFlags = computed(() =>
-    measurements.value.map((item) => item.isAnomaly),
+    chartMeasurements.value.map((item) => item.isAnomaly),
 )
 
 const isUnsupervisedEvaluation = computed(() => {
@@ -203,7 +268,6 @@ const modelPanelScore = computed(() => {
         modelInfo.value?.modelScore ??
         null
   }
-
   return modelPanelPrimary.value?.accuracy ?? modelInfo.value?.accuracy ?? null
 })
 
@@ -279,16 +343,22 @@ const dashboardData = computed(() => {
       title: 'Radiation Over Time',
       legend: {
         radiation: 'Radiation level',
-        anomalies: 'Detected anomalies',
+        anomalies: 'ML-detected anomalies',
         threshold: 'Threshold',
       },
     },
 
     alert: {
-      title: 'ANOMALY DETECTED',
+title: latest
+      ? latest.status === 'Critical'
+          ? 'CRITICAL EVENT'
+          : latest.status === 'Warning'
+              ? 'RADIATION WARNING'
+              : 'ML ANOMALY DETECTED'
+      : 'RADIATION EVENT',
       description: latest
           ? `Detected ${latest.status.toLowerCase()} event at ${latest.timestamp}, radiation level ${formatNumber(latest.radiationLevel)} µSv/h.`
-          : 'An anomalous radiation event has been detected in the active dataset.',
+          : 'An event requiring attention has been detected in the active dataset.',
       buttonLabel: 'ACKNOWLEDGE',
     },
 
@@ -326,22 +396,19 @@ const dashboardData = computed(() => {
 
     anomalyDetails: {
       title: 'Anomaly Details',
-      columns: ['Timestamp', 'Level', 'Type', 'Status'],
-      rows: anomalies.value.slice(0, 4).map((item) => ({
-        timestamp: item.timestamp,
-        level: `${formatNumber(item.radiationLevel)} µSv/h`,
-        tag: formatAnomalyType(item.anomalyType),
-        tagType: 'type',
-        status: item.status,
-        statusType:
-            item.status === 'Critical'
-                ? 'critical'
-                : item.status === 'High'
-                    ? 'high'
-                    : item.status === 'Normal'
-                        ? 'normal'
-                        : 'alert',
-      })),
+      columns: ['Timestamp', 'Level', 'Detection', 'Status'],
+      rows: anomalies.value.slice(0, 4).map((item) => {
+        const dashboardStatus = getDashboardStatus(item.status)
+
+        return {
+          timestamp: item.timestamp,
+          level: `${formatNumber(item.radiationLevel)} µSv/h`,
+          tag: getDetectionLabel(item.anomalyType),
+          tagType: getDetectionType(item.anomalyType),
+          status: dashboardStatus.label,
+          statusType: dashboardStatus.type,
+        }
+      }),
     },
 
     common: {
@@ -364,13 +431,13 @@ const dashboardData = computed(() => {
         value: `${formatNumber(item.radiationLevel)} µSv/h`,
         status: item.status,
         statusType:
-            item.status === 'Critical'
-                ? 'critical'
-                : item.status === 'High'
-                    ? 'high'
-                    : item.status === 'Normal'
-                        ? 'normal'
-                        : 'alert',
+        item.status === 'Critical'
+        ? 'critical'
+        : item.status === 'Warning'
+            ? 'warning'
+            : item.status === 'ML Anomaly'
+                ? 'ml-anomaly'
+                : 'normal',
         isNew: index < 2,
       })),
     },
@@ -1081,10 +1148,22 @@ onMounted(() => {
   border: 1px solid rgba(255, 132, 152, 0.22);
 }
 
-.table-pill--high {
+.table-pill--warning {
   background: linear-gradient(180deg, rgba(222, 169, 84, 0.24), rgba(224, 153, 54, 0.22));
   color: #ffe6bd;
   border: 1px solid rgba(255, 208, 132, 0.24);
+}
+
+.table-pill--ml-anomaly {
+  background: linear-gradient(180deg, rgba(121, 140, 220, 0.22), rgba(72, 91, 160, 0.2));
+  color: #d7e4ff;
+  border: 1px solid rgba(120, 151, 235, 0.24);
+}
+
+.table-pill--detected {
+  background: linear-gradient(180deg, rgba(121, 140, 220, 0.22), rgba(72, 91, 160, 0.2));
+  color: #d7e4ff;
+  border: 1px solid rgba(120, 151, 235, 0.24);
 }
 
 .table-pill--normal {
@@ -1093,10 +1172,28 @@ onMounted(() => {
   border: 1px solid rgba(118, 237, 191, 0.28);
 }
 
-.table-pill--type {
-  background: linear-gradient(180deg, rgba(121, 140, 220, 0.16), rgba(72, 91, 160, 0.14));
-  color: #d7e4ff;
-  border: 1px solid rgba(120, 151, 235, 0.18);
+.table-pill--model {
+  background: rgba(105, 139, 215, 0.08);
+  color: #b9cbf7;
+  border: 1px solid rgba(120, 151, 235, 0.34);
+}
+
+.table-pill--threshold {
+  background: rgba(222, 169, 84, 0.07);
+  color: #f1cb8c;
+  border: 1px solid rgba(255, 208, 132, 0.32);
+}
+
+.table-pill--combined {
+  background: rgba(179, 143, 219, 0.08);
+  color: #d9c4f3;
+  border: 1px solid rgba(194, 156, 235, 0.34);
+}
+
+.table-pill--none {
+  background: rgba(157, 176, 213, 0.06);
+  color: #aebbd4;
+  border: 1px solid rgba(157, 176, 213, 0.18);
 }
 
 .current-panel {

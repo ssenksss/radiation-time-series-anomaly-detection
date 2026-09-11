@@ -1,12 +1,21 @@
 """
-pca reconstruction anomaly detection model
+pca reconstruction error anomaly detection model
 
-this model learns a compressed representation of normal measurements
-records with larger reconstruction error are treated as possible anomalies
+the model learns the main structure of normal training data
+records that cannot be reconstructed well receive higher anomaly scores
 """
 
 from pathlib import Path
 import sys
+import time
+from typing import Dict, Tuple
+
+import numpy as np
+import pandas as pd
+
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 SCRIPTS_DIR = PROJECT_ROOT / "ml" / "scripts"
@@ -15,98 +24,259 @@ for import_path in (PROJECT_ROOT, SCRIPTS_DIR):
     if str(import_path) not in sys.path:
         sys.path.append(str(import_path))
 
-import time
-from typing import Dict, Tuple
-
-import numpy as np
-import pandas as pd
-from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
 
 from ml.models.model_training_utils import (
     FEATURE_COLUMNS,
-    RANDOM_STATE,
     add_result_columns,
     build_timing,
-    build_top_score_predictions,
-    calculate_contamination_from_threshold,
     chronological_train_test_split,
+    convert_feature_columns_to_numeric,
+    fill_missing_features_from_train,
     get_active_dataset_id,
-    get_threshold,
     load_feature_measurements,
     mark_dataset_as_model_trained,
     print_training_summary,
     replace_anomaly_results,
-    safe_fill_feature_columns,
 )
 
 
-MODEL_NAME = "PCA Reconstruction Error"
+MODEL_NAME = "PCA"
+
+EXPLAINED_VARIANCE = 0.95
+IQR_MULTIPLIER = 1.5
 
 
-def train_pca_reconstruction(dataframe: pd.DataFrame, threshold: float) -> Tuple[pd.DataFrame, Dict[str, float]]:
-    model_dataframe = safe_fill_feature_columns(dataframe)
-    train_dataframe, test_dataframe = chronological_train_test_split(model_dataframe)
+def calculate_reconstruction_error(
+    pca: PCA,
+    features,
+) -> np.ndarray:
 
-    contamination = calculate_contamination_from_threshold(train_dataframe, threshold)
+    transformed_features = pca.transform(
+        features
+    )
 
-    # contamination decides how many largest reconstruction errors are marked
-    training_started_at = time.time()
+    reconstructed_features = pca.inverse_transform(
+        transformed_features
+    )
+
+    reconstruction_error = np.mean(
+        (features - reconstructed_features) ** 2,
+        axis=1,
+    )
+
+    return reconstruction_error
+
+
+def train_pca(
+    dataframe: pd.DataFrame,
+) -> Tuple[pd.DataFrame, Dict[str, float]]:
+
+    model_dataframe = convert_feature_columns_to_numeric(
+        dataframe.copy()
+    )
+
+    train_dataframe, test_dataframe = chronological_train_test_split(
+        model_dataframe
+    )
+
+    train_ids = set(
+        train_dataframe["id"].tolist()
+    )
+
+    test_ids = set(
+        test_dataframe["id"].tolist()
+    )
+
+    train_dataframe, test_dataframe = fill_missing_features_from_train(
+        train_dataframe,
+        test_dataframe,
+    )
+
+    train_medians = train_dataframe[
+        FEATURE_COLUMNS
+    ].median(numeric_only=True)
+
+    model_dataframe[FEATURE_COLUMNS] = (
+        model_dataframe[FEATURE_COLUMNS]
+        .fillna(train_medians)
+        .fillna(0)
+    )
 
     scaler = StandardScaler()
-    train_features = scaler.fit_transform(train_dataframe[FEATURE_COLUMNS])
-    all_features = scaler.transform(model_dataframe[FEATURE_COLUMNS])
-    # use a small number of components to keep only the main pattern
-    n_components = min(3, train_features.shape[1] - 1)
+
+    train_features = scaler.fit_transform(
+        train_dataframe[FEATURE_COLUMNS]
+    )
+
+    test_features = scaler.transform(
+        test_dataframe[FEATURE_COLUMNS]
+    )
+
+    all_features = scaler.transform(
+        model_dataframe[FEATURE_COLUMNS]
+    )
+
+    training_started_at = time.time()
 
     model = PCA(
-        n_components=n_components,
-        random_state=RANDOM_STATE,
+        n_components=EXPLAINED_VARIANCE,
     )
-    model.fit(train_features)
 
-    training_time_seconds = time.time() - training_started_at
+    model.fit(
+        train_features
+    )
 
+    train_anomaly_scores = calculate_reconstruction_error(
+        model,
+        train_features,
+    )
+
+    q1 = np.percentile(
+        train_anomaly_scores,
+        25,
+    )
+
+    q3 = np.percentile(
+        train_anomaly_scores,
+        75,
+    )
+
+    iqr = q3 - q1
+
+    anomaly_cutoff = (
+        q3
+        + IQR_MULTIPLIER
+        * iqr
+    )
+
+    training_time_seconds = (
+        time.time() - training_started_at
+    )
+
+    # prediction timing is measured only on the test set
     prediction_started_at = time.time()
-    transformed = model.transform(all_features)
-    reconstructed = model.inverse_transform(transformed)
-    # reconstruction error is used as anomaly score
-    anomaly_scores = np.mean((all_features - reconstructed) ** 2, axis=1)
-    predicted_anomaly = build_top_score_predictions(anomaly_scores, contamination)
-    prediction_time_seconds = time.time() - prediction_started_at
+
+    test_anomaly_scores = calculate_reconstruction_error(
+        model,
+        test_features,
+    )
+
+    test_anomaly_scores > anomaly_cutoff
+
+    prediction_time_seconds = (
+        time.time() - prediction_started_at
+    )
+
+    # full scores are stored for the application
+    anomaly_scores = calculate_reconstruction_error(
+        model,
+        all_features,
+    )
+
+    predicted_anomaly = (
+        anomaly_scores > anomaly_cutoff
+    )
 
     results = add_result_columns(
         dataframe=model_dataframe,
         predicted_anomaly=predicted_anomaly,
         anomaly_scores=anomaly_scores,
-        threshold=threshold,
     )
 
-    print(f"Threshold used for PCA Reconstruction severity: {threshold}")
-    print(f"PCA components: {n_components}")
-    print(f"Calculated contamination: {contamination}")
-    print(f"Train rows: {len(train_dataframe)}")
-    print(f"Test rows: {len(test_dataframe)}")
+    results["evaluation_split"] = "full"
 
-    return results, build_timing(training_time_seconds, prediction_time_seconds)
+    results.loc[
+        results["id"].isin(train_ids),
+        "evaluation_split",
+    ] = "train"
+
+    results.loc[
+        results["id"].isin(test_ids),
+        "evaluation_split",
+    ] = "test"
+
+    total_explained_variance = (
+        model.explained_variance_ratio_.sum()
+    )
+
+    print(
+        f"PCA requested explained variance: {EXPLAINED_VARIANCE}"
+    )
+
+    print(
+        f"PCA selected components: {model.n_components_}"
+    )
+
+    print(
+        f"PCA actual explained variance: {total_explained_variance}"
+    )
+
+    print(
+        f"PCA train Q1: {q1}"
+    )
+
+    print(
+        f"PCA train Q3: {q3}"
+    )
+
+    print(
+        f"PCA train IQR: {iqr}"
+    )
+
+    print(
+        f"PCA IQR multiplier: {IQR_MULTIPLIER}"
+    )
+
+    print(
+        f"PCA anomaly score cutoff: {anomaly_cutoff}"
+    )
+
+    print(
+        f"Train rows: {len(train_dataframe)}"
+    )
+
+    print(
+        f"Test rows: {len(test_dataframe)}"
+    )
+
+    return results, build_timing(
+        training_time_seconds,
+        prediction_time_seconds,
+    )
 
 
-def train_pca_reconstruction_for_active_dataset() -> Dict[str, float]:
+def train_pca_for_active_dataset() -> Dict[str, float]:
     dataset_id = get_active_dataset_id()
-    threshold = get_threshold()
 
-    feature_dataframe = load_feature_measurements(dataset_id)
-    result_dataframe, timing = train_pca_reconstruction(feature_dataframe, threshold)
-    replace_anomaly_results(dataset_id, MODEL_NAME, result_dataframe)
-    mark_dataset_as_model_trained(dataset_id)
+    feature_dataframe = load_feature_measurements(
+        dataset_id
+    )
 
-    print_training_summary(MODEL_NAME, dataset_id, result_dataframe)
+    result_dataframe, timing = train_pca(
+        feature_dataframe,
+    )
+
+    replace_anomaly_results(
+        dataset_id,
+        MODEL_NAME,
+        result_dataframe,
+    )
+
+    mark_dataset_as_model_trained(
+        dataset_id
+    )
+
+    print_training_summary(
+        MODEL_NAME,
+        dataset_id,
+        result_dataframe,
+    )
 
     return timing
 
 
 def main():
-    train_pca_reconstruction_for_active_dataset()
+    train_pca_for_active_dataset()
 
 
 if __name__ == "__main__":

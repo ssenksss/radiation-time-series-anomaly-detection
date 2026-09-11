@@ -6,9 +6,9 @@ MODEL_ID_TO_NAME = {
     "lof": "Local Outlier Factor",
     "one_class_svm": "One-Class SVM",
     "dbscan": "DBSCAN",
-    "kmeans_distance": "K-Means Distance",
+    "kmeans_distance": "K-Means",
     "gaussian_mixture": "Gaussian Mixture Model",
-    "pca_reconstruction": "PCA Reconstruction Error",
+    "pca_reconstruction": "PCA",
     "hbos": "HBOS",
     "ecod": "ECOD",
     "logistic_regression": "Logistic Regression",
@@ -126,16 +126,15 @@ def get_summary_from_database() -> dict:
             d.name AS dataset_name,
             COUNT(ar.id) AS total_measurements,
             COALESCE(
-                SUM(
-                    CASE
-                        WHEN ar.predicted_anomaly = TRUE
-                         AND ar.radiation_level >= %s
-                        THEN 1
-                        ELSE 0
-                    END
-                ),
-                0
-            ) AS total_anomalies,
+            SUM(
+            CASE
+            WHEN ar.predicted_anomaly = TRUE
+            THEN 1
+            ELSE 0
+        END
+    ),
+    0
+) AS total_anomalies,
             COALESCE(AVG(ar.radiation_level), 0) AS average_level,
             COALESCE(MAX(ar.radiation_level), 0) AS max_level,
             COALESCE(MIN(ar.radiation_level), 0) AS min_level,
@@ -147,7 +146,7 @@ def get_summary_from_database() -> dict:
         WHERE d.id = %s
         GROUP BY d.name;
         """,
-        (threshold, active_model_name, dataset_id),
+        (active_model_name, dataset_id),
     )
 
     latest_row = fetch_one(
@@ -185,7 +184,10 @@ def get_summary_from_database() -> dict:
 
     if latest_row:
         current_level = float(latest_row["radiation_level"])
-        active_alert = bool(latest_row["predicted_anomaly"]) and current_level >= threshold
+        predicted_anomaly = bool(latest_row["predicted_anomaly"])
+        threshold_exceeded = threshold > 0 and current_level >= threshold
+
+        active_alert = predicted_anomaly or threshold_exceeded
         last_updated = latest_row["timestamp"].strftime("%Y-%m-%d %H:%M:%S")
 
     if summary_row["last_updated"]:

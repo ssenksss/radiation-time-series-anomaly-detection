@@ -10,9 +10,9 @@ MODEL_ID_TO_NAME = {
     "lof": "Local Outlier Factor",
     "one_class_svm": "One-Class SVM",
     "dbscan": "DBSCAN",
-    "kmeans_distance": "K-Means Distance",
+    "kmeans_distance": "K-Means",
     "gaussian_mixture": "Gaussian Mixture Model",
-    "pca_reconstruction": "PCA Reconstruction Error",
+    "pca_reconstruction": "PCA",
     "hbos": "HBOS",
     "ecod": "ECOD",
     "logistic_regression": "Logistic Regression",
@@ -118,17 +118,26 @@ def get_threshold() -> float:
     return float(row["value"])
 
 
-def classify_radiation_event(radiation_level: float, threshold: float) -> tuple[str, str]:
-    if threshold <= 0:
-        return "normal", "Normal"
+def classify_radiation_event(
+    radiation_level: float,
+    predicted_anomaly: bool,
+    threshold: float,
+) -> tuple[str, str]:
+    threshold_exceeded = (
+        threshold > 0
+        and radiation_level >= threshold
+    )
 
-    if radiation_level < threshold:
-        return "normal", "Normal"
+    if predicted_anomaly and threshold_exceeded:
+        return "critical", "Critical"
 
-    if radiation_level >= threshold * 2:
-        return "spike", "Critical"
+    if predicted_anomaly:
+        return "ml_anomaly", "ML Anomaly"
 
-    return "warning", "High"
+    if threshold_exceeded:
+        return "warning", "Warning"
+
+    return "normal", "Normal"
 
 
 @router.get("/anomalies")
@@ -157,8 +166,10 @@ def read_anomalies(limit: int = Query(default=200, ge=1, le=1000)):
             ON fm.clean_measurement_id = cm.id
         WHERE ar.dataset_id = %s
           AND ar.model_name = %s
-          AND ar.predicted_anomaly = TRUE
-          AND ar.radiation_level >= %s
+          AND (
+          ar.predicted_anomaly = TRUE
+          OR ar.radiation_level >= %s
+          )
         ORDER BY ar.timestamp DESC
         LIMIT %s;
         """,
@@ -169,8 +180,13 @@ def read_anomalies(limit: int = Query(default=200, ge=1, le=1000)):
 
     for row in rows:
         radiation_level = float(row["radiation_level"])
-        anomaly_type, status = classify_radiation_event(radiation_level, threshold)
 
+        predicted_anomaly = bool(row["predicted_anomaly"])
+
+        anomaly_type, status = classify_radiation_event(
+        radiation_level,
+        predicted_anomaly,
+        threshold,)
         anomalies.append(
             {
                 "timestamp": row["timestamp"].strftime("%Y-%m-%d %H:%M:%S"),
@@ -179,7 +195,7 @@ def read_anomalies(limit: int = Query(default=200, ge=1, le=1000)):
                 "location": str(row["location"]),
                 "temperature": None if row["temperature"] is None else round(float(row["temperature"]), 2),
                 "humidity": None if row["humidity"] is None else round(float(row["humidity"]), 2),
-                "isAnomaly": True,
+                "isAnomaly": predicted_anomaly,
                 "anomalyScore": round(float(row["anomaly_score"]), 4),
                 "anomalyType": anomaly_type,
                 "status": status,

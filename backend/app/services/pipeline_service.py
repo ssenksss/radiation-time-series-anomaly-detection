@@ -14,7 +14,7 @@ from app.database.connection import fetch_one
 ROOT_DIR = Path(__file__).resolve().parents[3]
 PIPELINE_SCRIPT = ROOT_DIR / "ml" / "scripts" / "run_ml_pipeline.py"
 
-VALID_PIPELINE_MODES = {"full", "threshold-update"}
+VALID_PIPELINE_MODES = {"full"}
 
 _status_lock = threading.Lock()
 
@@ -72,7 +72,7 @@ def _normalize_mode(mode: str) -> str:
     normalized = mode.strip().lower()
 
     if normalized not in VALID_PIPELINE_MODES:
-        return "threshold-update"
+        return "full"
 
     return normalized
 
@@ -96,6 +96,7 @@ def _run_pipeline_job(job_id: str, mode: str) -> None:
         str(PIPELINE_SCRIPT),
         "--mode",
         mode,
+        "--skip-ingest",
     ]
 
     try:
@@ -173,7 +174,7 @@ def _run_pipeline_job(job_id: str, mode: str) -> None:
 
 def start_pipeline_in_background(
         background_tasks: BackgroundTasks,
-        mode: str = "threshold-update",
+        mode: str = "full",
 ) -> Dict[str, Any]:
     mode = _normalize_mode(mode)
     current_status = get_pipeline_status()

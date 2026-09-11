@@ -64,26 +64,30 @@ const formatAnomalyType = (type: string | null | undefined) => {
   const normalizedType = type.toLowerCase().replaceAll(' ', '_')
 
   const labels: Record<string, string> = {
-    normal: 'Normal',
-    warning: 'Warning',
-    spike: 'Spike',
+  normal: 'Normal',
+  warning: 'Warning',
+  critical: 'Critical',
+  ml_anomaly: 'ML Anomaly',
 
-    threshold_detection: 'Warning',
-    model_detection: 'Warning',
-    ml_detected: 'Warning',
-    sustained_increase: 'Warning',
-    sensor_drop: 'Warning',
-  }
+  threshold_detection: 'Warning',
+  model_detection: 'ML Anomaly',
+  ml_detected: 'ML Anomaly',
+
+  spike: 'Critical',
+  sustained_increase: 'Warning',
+  sensor_drop: 'Warning',
+}
 
   return labels[normalizedType] ?? normalizedType.replaceAll('_', ' ')
 }
 
 const getSeverityType = (status: string | null | undefined) => {
   if (status === 'Critical') return 'critical'
-  if (status === 'High') return 'high'
+  if (status === 'Warning') return 'warning'
+  if (status === 'ML Anomaly') return 'ml-anomaly'
   if (status === 'Normal') return 'normal'
 
-  return 'alert'
+  return 'normal'
 }
 
 const shouldShowLocation = computed(() => {
@@ -488,10 +492,24 @@ watch(
   color: #ffd3d8;
 }
 
-.severity-pill--high {
-  background: rgba(255, 193, 94, 0.22);
-  border: 1px solid rgba(255, 208, 132, 0.24);
+.severity-pill--warning {
+  background: linear-gradient(
+    180deg,
+    rgba(222, 169, 84, 0.24),
+    rgba(224, 153, 54, 0.22)
+  );
   color: #ffe6bd;
+  border: 1px solid rgba(255, 208, 132, 0.24);
+}
+
+.severity-pill--ml-anomaly {
+  background: linear-gradient(
+    180deg,
+    rgba(121, 140, 220, 0.22),
+    rgba(72, 91, 160, 0.2)
+  );
+  color: #d7e4ff;
+  border: 1px solid rgba(120, 151, 235, 0.24);
 }
 
 .severity-pill--normal {

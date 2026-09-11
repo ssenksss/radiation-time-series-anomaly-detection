@@ -119,6 +119,8 @@ async def upload_dataset_and_run_pipeline(file: UploadFile) -> Dict[str, Any]:
 
 
 def get_datasets_from_database() -> list:
+    active_dataset_id = get_active_dataset_id()
+
     rows = fetch_all(
         """
         SELECT
@@ -128,8 +130,7 @@ def get_datasets_from_database() -> list:
             source_type,
             uploaded_at,
             row_count,
-            status,
-            is_active
+            status
         FROM datasets
         ORDER BY uploaded_at DESC;
         """
@@ -138,16 +139,18 @@ def get_datasets_from_database() -> list:
     datasets = []
 
     for row in rows:
+        dataset_id = int(row["id"])
+
         datasets.append(
             {
-                "id": int(row["id"]),
+                "id": dataset_id,
                 "name": row["name"],
                 "originalFilename": row["original_filename"],
                 "sourceType": row["source_type"],
                 "uploadedAt": row["uploaded_at"].strftime("%Y-%m-%d %H:%M:%S"),
                 "rowCount": int(row["row_count"]),
                 "status": row["status"],
-                "isActive": bool(row["is_active"]),
+                "isActive": dataset_id == active_dataset_id,
             }
         )
 

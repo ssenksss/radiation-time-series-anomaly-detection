@@ -7,14 +7,13 @@ from sklearn.metrics import (
     recall_score,
     f1_score,
     roc_auc_score,
-    average_precision_score,
+    precision_recall_curve,
+    auc,
     confusion_matrix,
 )
 
-from db import fetch_one, fetch_all, execute_query
+from ml.scripts.db import fetch_one, fetch_all, execute_query
 
-
-TRAIN_RATIO = 0.70
 
 SUPERVISED_MODEL_NAMES = {
     "Logistic Regression",
@@ -54,24 +53,19 @@ def get_model_names_for_dataset(dataset_id: int) -> list[str]:
     return [row["model_name"] for row in rows]
 
 
-def keep_test_part(dataframe: pd.DataFrame) -> pd.DataFrame:
-    # metrics are calculated only on the later test part
-    split_index = int(len(dataframe) * TRAIN_RATIO)
 
-    if split_index <= 0 or split_index >= len(dataframe):
-        return dataframe
-
-    return dataframe.iloc[split_index:].copy()
 
 
 def load_labeled_evaluation_data(dataset_id: int, model_name: str) -> pd.DataFrame:
-    # load predictions together with original labels for evaluation
+    # load only the exact test rows saved during model training
     rows = fetch_all(
         """
         SELECT
+            ar.feature_measurement_id,
             ar.timestamp,
             ar.predicted_anomaly,
             ar.anomaly_score,
+            ar.evaluation_split,
             cm.original_label
         FROM anomaly_results ar
         JOIN feature_measurements fm
@@ -80,6 +74,7 @@ def load_labeled_evaluation_data(dataset_id: int, model_name: str) -> pd.DataFra
             ON fm.clean_measurement_id = cm.id
         WHERE ar.dataset_id = %s
           AND ar.model_name = %s
+          AND ar.evaluation_split = 'test'
           AND cm.original_label IS NOT NULL
         ORDER BY ar.timestamp;
         """,
@@ -93,7 +88,7 @@ def load_labeled_evaluation_data(dataset_id: int, model_name: str) -> pd.DataFra
 
     dataframe["timestamp"] = pd.to_datetime(dataframe["timestamp"])
 
-    return keep_test_part(dataframe)
+    return dataframe
 
 
 def load_unsupervised_summary(dataset_id: int, model_name: str) -> dict:
@@ -146,10 +141,19 @@ def calculate_labeled_metrics(dataframe: pd.DataFrame, evaluation_mode: str) -> 
     roc_auc = None
     pr_auc = None
 
-    # auc values are skipped if the test part has only one class
+    # auc values are skipped if the test set has only one class
     if has_both_classes:
         roc_auc = roc_auc_score(y_true, y_score)
-        pr_auc = average_precision_score(y_true, y_score)
+
+        pr_precision, pr_recall, _ = precision_recall_curve(
+            y_true,
+            y_score,
+        )
+
+        pr_auc = auc(
+            pr_recall[::-1],
+            pr_precision[::-1],
+        )
 
     tn, fp, fn, tp = confusion_matrix(
         y_true,
@@ -237,6 +241,30 @@ def attach_model_timing(metrics: dict, model_name: str, model_timings: Optional[
 
 
 def save_metrics(dataset_id: int, model_name: str, metrics: dict) -> None:
+    # keep timing values measured during model training
+    existing_timing = fetch_one(
+        """
+        SELECT
+            training_time_seconds,
+            prediction_time_seconds
+        FROM model_metrics
+        WHERE dataset_id = %s
+          AND model_name = %s;
+        """,
+        (dataset_id, model_name),
+    )
+
+    if existing_timing:
+        if metrics.get("training_time_seconds") is None:
+            metrics["training_time_seconds"] = existing_timing[
+                "training_time_seconds"
+            ]
+
+        if metrics.get("prediction_time_seconds") is None:
+            metrics["prediction_time_seconds"] = existing_timing[
+                "prediction_time_seconds"
+            ]
+
     # replace old metrics for the same model and dataset
     execute_query(
         """
@@ -330,6 +358,8 @@ def evaluate_active_dataset(
 
     for model_name in model_names_to_evaluate:
         labeled_dataframe = load_labeled_evaluation_data(dataset_id, model_name)
+        if not labeled_dataframe.empty:
+            print(f"Exact labeled test rows: {len(labeled_dataframe)}")
 
         if not labeled_dataframe.empty:
             metrics = calculate_labeled_metrics(

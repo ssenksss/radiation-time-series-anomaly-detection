@@ -2,12 +2,10 @@
 import { computed, onMounted, ref } from 'vue'
 import MainLayout from '../layouts/MainLayout.vue'
 import RadiationChart from '../components/RadiationChart.vue'
-import type { PipelineStatus } from '../types/api'
 import { useNotificationSettingsStore } from '../stores/useNotificationSettingsStore'
 import {
   getMeasurements,
   getModelInfo,
-  getPipelineStatus,
   getSettings,
   getSummary,
   updateActiveModel,
@@ -199,8 +197,6 @@ const emailStatus = ref('')
 const emailStatusType = ref<'success' | 'warning'>('success')
 const isLoading = ref(true)
 const isModelLoading = ref(false)
-const isPipelineRunning = ref(false)
-const pipelineStatus = ref<PipelineStatus | null>(null)
 const errorMessage = ref('')
 
 const thresholdNumber = computed(() => {
@@ -219,9 +215,7 @@ const hasUnsavedModelChanges = computed(() => {
   return selectedModel.value !== savedModel.value
 })
 
-const metricsAreStale = computed(() => {
-  return hasUnsavedThresholdChanges.value || hasUnsavedModelChanges.value || isPipelineRunning.value
-})
+const metricsAreStale = computed(() => false)
 
 const thresholdSliderMax = computed(() => {
   const maxLevel = summary.value?.maxLevel ?? 1
@@ -808,7 +802,7 @@ const unsavedThresholdMessage = computed(() => {
 
   if (!messages.length) return ''
 
-  return `${messages.join(' ')} Click Save Changes to retrain models and update metrics.`
+    return `${messages.join(' ')} Click Save Changes to apply the new settings.`
 })
 
 const notificationSummary = computed(() => {
@@ -906,19 +900,14 @@ const selectModel = (model: AvailableModel) => {
   selectedModel.value = model.id
   isModelDropdownOpen.value = false
   showAllModelMetrics.value = false
-  saveStatus.value = 'Model selected. Click Save Changes to retrain models and update metrics.'
-
+  saveStatus.value = 'Model selected. Click Save Changes to apply the new setting.'
   window.setTimeout(() => {
     if (hasUnsavedModelChanges.value) return
     saveStatus.value = ''
   }, 2500)
 }
 
-const delay = (milliseconds: number) => {
-  return new Promise((resolve) => {
-    window.setTimeout(resolve, milliseconds)
-  })
-}
+
 
 const refreshSettingsDashboardData = async (threshold: number) => {
   const [summaryResponse, modelInfoResponse, measurementsResponse] = await Promise.all([
@@ -946,75 +935,48 @@ const refreshSettingsDashboardData = async (threshold: number) => {
   }
 }
 
-const waitForPipelineToFinish = async () => {
-  const maxAttempts = 120
-
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    const status = await getPipelineStatus()
-    pipelineStatus.value = status
-
-    if (status.status === 'success') {
-      return status
-    }
-
-    if (status.status === 'failed') {
-      throw new Error(status.errorMessage ?? status.message ?? 'ML pipeline failed.')
-    }
-
-    if (status.status === 'running') {
-      const elapsedSeconds = Math.round((attempt * 750) / 1000)
-      saveStatus.value = `ML pipeline is running in background... ${elapsedSeconds}s`
-    } else {
-      saveStatus.value = 'Waiting for ML pipeline to start...'
-    }
-
-    await delay(750)
-  }
-
-  throw new Error('ML pipeline took too long to finish.')
-}
 
 const saveChanges = async () => {
   const selectedThreshold = editableThreshold.value
 
   try {
-    saveStatus.value = 'Saving settings and starting ML pipeline...'
+    saveStatus.value = 'Saving settings...'
+    isModelLoading.value = true
 
-    await updateActiveModel(selectedModel.value)
+    await updateActiveModel(
+      selectedModel.value
+    )
 
-    const settingsResponse = await updateThreshold(selectedThreshold)
-
-    pipelineStatus.value = settingsResponse.pipeline ?? null
-    isPipelineRunning.value = true
+    await updateThreshold(
+      selectedThreshold
+    )
 
     saveNotificationSettings()
 
+    editableThreshold.value = selectedThreshold
+    savedThreshold.value = selectedThreshold
+    savedModel.value = selectedModel.value
+
     summary.value = summary.value
-        ? {
+      ? {
           ...summary.value,
           threshold: selectedThreshold,
         }
-        : summary.value
+      : summary.value
 
-    editableThreshold.value = selectedThreshold
+    await refreshSettingsDashboardData(
+      selectedThreshold
+    )
 
-    saveStatus.value = 'Threshold saved. ML pipeline started in background.'
-
-    await waitForPipelineToFinish()
-
-    saveStatus.value = 'ML pipeline finished. Reloading metrics...'
-    isModelLoading.value = true
-
-    await refreshSettingsDashboardData(selectedThreshold)
-
-    saveStatus.value = `Settings saved. Models retrained with threshold ${selectedThreshold.toFixed(2)} µSv/h.`
+    saveStatus.value = 'Settings saved successfully.'
   } catch (error) {
     console.error(error)
-    saveStatus.value = error instanceof Error
+
+    saveStatus.value =
+      error instanceof Error
         ? error.message
         : 'Settings could not be saved.'
   } finally {
-    isPipelineRunning.value = false
     isModelLoading.value = false
   }
 
@@ -1282,13 +1244,14 @@ onMounted(() => {
 
           <div class="save-row">
             <button
-                class="save-button"
-                type="button"
-                :disabled="isPipelineRunning || isModelLoading"
-                @click="saveChanges"
+            class="save-button"
+            type="button"
+            :disabled="isModelLoading"
+            @click="saveChanges"
             >
-              {{ isPipelineRunning ? 'Retraining...' : 'Save Changes' }}
-            </button>
+            Save Changes
+          </button>
+
             <span v-if="saveStatus" class="feedback feedback--success">{{ saveStatus }}</span>
           </div>
         </div>
@@ -1358,19 +1321,19 @@ onMounted(() => {
                 </button>
                 <button
                     type="button"
-                    :class="{ 'option-button--active': notificationSettings.selectedAlertSeverity === 'High + Critical' }"
+                    :class="{ 'option-button--active': notificationSettings.selectedAlertSeverity === 'Warning + Critical' }"
                     class="option-button"
-                    @click="notificationSettings.selectedAlertSeverity = 'High + Critical'"
+                    @click="notificationSettings.selectedAlertSeverity = 'Warning + Critical'"
                 >
-                  High + Critical
+                Warning + Critical
                 </button>
                 <button
                     type="button"
-                    :class="{ 'option-button--active': notificationSettings.selectedAlertSeverity === 'All anomalies' }"
+                    :class="{ 'option-button--active': notificationSettings.selectedAlertSeverity === 'All alerts' }"
                     class="option-button"
-                    @click="notificationSettings.selectedAlertSeverity = 'All anomalies'"
+                    @click="notificationSettings.selectedAlertSeverity = 'All alerts'"
                 >
-                  All anomalies
+                  All alerts
                 </button>
               </div>
 

@@ -2,6 +2,17 @@
   <div class="chart-wrapper">
     <canvas v-show="hasData" ref="chartRef"></canvas>
 
+    <div v-if="hasData" class="chart-badges">
+      <div class="chart-period-badge">
+        {{ chartPeriodLabel }}
+      </div>
+
+      <div v-if="thresholdAboveVisibleRange" class="threshold-outside-badge">
+        Threshold {{ thresholdDisplayValue }} µSv/h
+        <span>above visible range ↑</span>
+      </div>
+    </div>
+
     <div v-if="!hasData" class="chart-empty">
       No chart data available.
     </div>
@@ -44,6 +55,90 @@ const hasData = computed(() => {
   return labels.value.length > 0 && values.value.length > 0
 })
 
+const observedMaximum = computed(() => {
+  if (!values.value.length) return 0
+
+  return Math.max(...values.value)
+})
+
+const thresholdAboveVisibleRange = computed(() => {
+  if (observedMaximum.value <= 0) return false
+
+  return props.threshold > observedMaximum.value * 1.35
+})
+
+const thresholdDisplayValue = computed(() => Number(props.threshold).toFixed(4))
+
+const MONTH_LABELS = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+]
+
+const parseTimestampParts = (timestamp: string) => {
+  const match = timestamp.match(
+    /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/,
+  )
+
+  if (!match) return null
+
+  return {
+    year: match[1],
+    month: match[2],
+    day: match[3],
+    hour: match[4],
+    minute: match[5],
+    second: match[6] ?? '00',
+  }
+}
+
+const formatPeriodDate = (timestamp: string) => {
+  const parts = parseTimestampParts(timestamp)
+
+  if (!parts) return timestamp
+
+  const monthIndex = Number(parts.month) - 1
+  const month = MONTH_LABELS[monthIndex] ?? parts.month
+
+  return `${Number(parts.day)} ${month} ${parts.year}`
+}
+
+const formatAxisTime = (timestamp: string) => {
+  const parts = parseTimestampParts(timestamp)
+
+  if (!parts) return timestamp
+
+  return `${parts.hour}:${parts.minute}`
+}
+
+const formatTooltipTimestamp = (timestamp: string) => {
+  const parts = parseTimestampParts(timestamp)
+
+  if (!parts) return timestamp
+
+  return `${parts.day}.${parts.month}.${parts.year} ${parts.hour}:${parts.minute}:${parts.second}`
+}
+
+const chartPeriodLabel = computed(() => {
+  if (!labels.value.length) return ''
+
+  const firstTimestamp = labels.value[0]
+  const lastTimestamp = labels.value[labels.value.length - 1]
+  const firstDate = formatPeriodDate(firstTimestamp)
+  const lastDate = formatPeriodDate(lastTimestamp)
+
+  return firstDate === lastDate ? firstDate : `${firstDate} – ${lastDate}`
+})
+
 const anomalyValues = computed(() =>
     values.value.map((value, index) => {
       if (props.anomalyFlags && props.anomalyFlags.length) {
@@ -55,7 +150,7 @@ const anomalyValues = computed(() =>
 )
 
 const thresholdValues = computed(() =>
-    values.value.map(() => props.threshold),
+    values.value.map(() => thresholdAboveVisibleRange.value ? null : props.threshold),
 )
 
 const chartRef = ref<HTMLCanvasElement | null>(null)
@@ -80,8 +175,11 @@ const renderChart = () => {
   gradient.addColorStop(0, 'rgba(110, 231, 255, 0.20)')
   gradient.addColorStop(1, 'rgba(110, 231, 255, 0.01)')
 
-  const maxValue = Math.max(...values.value, props.threshold)
-  const roundedMax = Math.ceil((maxValue + 0.1) * 10) / 10
+  const maxValue = thresholdAboveVisibleRange.value
+      ? observedMaximum.value
+      : Math.max(observedMaximum.value, props.threshold)
+  const chartPadding = Math.max(0.01, maxValue * 0.08)
+  const roundedMax = Math.ceil((maxValue + chartPadding) / 0.05) * 0.05
 
   chartInstance = new Chart(ctx, {
     type: 'line',
@@ -100,7 +198,7 @@ const renderChart = () => {
           pointHoverRadius: 4,
         },
         {
-          label: 'Detected Anomalies',
+          label: 'ML-detected anomalies',
           data: anomalyValues.value,
           borderColor: 'transparent',
           backgroundColor: '#ff8d6f',
@@ -125,6 +223,11 @@ const renderChart = () => {
       responsive: true,
       maintainAspectRatio: false,
       animation: false,
+      layout: {
+        padding: {
+          top: 22,
+        },
+      },
       plugins: {
         legend: {
           display: false,
@@ -136,6 +239,9 @@ const renderChart = () => {
           titleColor: '#eef4ff',
           bodyColor: '#d6e3ff',
           displayColors: true,
+          callbacks: {
+            title: (items) => formatTooltipTimestamp(items[0]?.label ?? ''),
+          },
         },
       },
       scales: {
@@ -151,7 +257,13 @@ const renderChart = () => {
             font: {
               size: 12,
             },
-            maxTicksLimit: 8,
+            maxTicksLimit: 7,
+            minRotation: 0,
+            maxRotation: 0,
+            autoSkipPadding: 24,
+            callback(value) {
+              return formatAxisTime(this.getLabelForValue(Number(value)))
+            },
           },
         },
         y: {
@@ -168,6 +280,15 @@ const renderChart = () => {
           },
           border: {
             display: false,
+          },
+          title: {
+            display: true,
+            text: 'Radiation level (µSv/h)',
+            color: '#9db0d5',
+            font: {
+              size: 12,
+              weight: 600,
+            },
           },
         },
       },
@@ -193,7 +314,7 @@ onBeforeUnmount(() => {
 <style scoped>
 .chart-wrapper {
   position: relative;
-  height: 320px;
+  height: 330px;
   border-radius: 18px;
   overflow: hidden;
   background: linear-gradient(180deg, rgba(8, 13, 28, 0.58), rgba(8, 13, 28, 0.92));
@@ -203,6 +324,49 @@ onBeforeUnmount(() => {
 
 .chart-wrapper canvas {
   filter: drop-shadow(0 0 10px rgba(121, 219, 255, 0.18));
+}
+
+.chart-badges {
+  position: absolute;
+  top: 16px;
+  right: 20px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 7px;
+  pointer-events: none;
+}
+
+.chart-period-badge {
+  padding: 5px 9px;
+  border: 1px solid rgba(120, 151, 235, 0.16);
+  border-radius: 8px;
+  background: rgba(9, 14, 28, 0.82);
+  color: #aebbd4;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.threshold-outside-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  padding: 7px 10px;
+  border: 1px solid rgba(255, 155, 88, 0.28);
+  border-radius: 10px;
+  background: rgba(27, 23, 29, 0.88);
+  color: #ffc08f;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.threshold-outside-badge span {
+  color: #aebbd4;
+  font-size: 10px;
+  font-weight: 600;
 }
 
 .chart-empty {

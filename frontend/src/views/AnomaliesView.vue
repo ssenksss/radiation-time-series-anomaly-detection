@@ -32,12 +32,6 @@ function formatNumber(value: number | null | undefined) {
   return Number(value).toFixed(4)
 }
 
-function formatChartLabel(timestamp: string) {
-  const parts = timestamp.split(' ')
-
-  return parts[1]?.slice(0, 5) ?? timestamp
-}
-
 function parseTimestamp(timestamp: string) {
   return new Date(timestamp.replace(' ', 'T'))
 }
@@ -48,26 +42,30 @@ function formatAnomalyType(type: string | null | undefined) {
   const normalizedType = type.toLowerCase().replaceAll(' ', '_')
 
   const labels: Record<string, string> = {
-    normal: 'Normal',
-    warning: 'Warning',
-    spike: 'Spike',
+  normal: 'Normal',
+  warning: 'Warning',
+  critical: 'Critical',
+  ml_anomaly: 'ML Anomaly',
 
-    threshold_detection: 'Warning',
-    model_detection: 'Warning',
-    ml_detected: 'Warning',
-    sustained_increase: 'Warning',
-    sensor_drop: 'Warning',
-  }
+  threshold_detection: 'Warning',
+  model_detection: 'ML Anomaly',
+  ml_detected: 'ML Anomaly',
+
+  spike: 'Critical',
+  sustained_increase: 'Warning',
+  sensor_drop: 'Warning',
+}
 
   return labels[normalizedType] ?? normalizedType.replaceAll('_', ' ')
 }
 
 function getStatusType(status: string | null | undefined) {
   if (status === 'Critical') return 'critical'
-  if (status === 'High') return 'high'
+  if (status === 'Warning') return 'warning'
+  if (status === 'ML Anomaly') return 'ml-anomaly'
   if (status === 'Normal') return 'normal'
 
-  return 'alert'
+  return 'normal'
 }
 
 function getQuickRangeMs(range: string) {
@@ -241,7 +239,7 @@ const chartMeasurements = computed(() => {
 })
 
 const chartLabels = computed(() =>
-    chartMeasurements.value.map((item) => formatChartLabel(item.timestamp)),
+    chartMeasurements.value.map((item) => item.timestamp),
 )
 
 const chartValues = computed(() =>
@@ -456,11 +454,20 @@ onMounted(() => {
 
             <button
                 class="chip"
-                :class="{ 'chip--active': selectedStatus === 'High' }"
+                :class="{ 'chip--active': selectedStatus === 'Warning' }"
                 type="button"
-                @click="selectedStatus = 'High'"
+                @click="selectedStatus = 'Warning'"
             >
-              High
+              Warning
+            </button>
+
+            <button
+                class="chip"
+                :class="{ 'chip--active': selectedStatus === 'ML Anomaly' }"
+                type="button"
+                @click="selectedStatus = 'ML Anomaly'"
+            >
+              ML Anomaly
             </button>
 
             <button
@@ -815,9 +822,10 @@ onMounted(() => {
 }
 
 .chip--active {
-  background: rgba(107, 158, 255, 0.12);
-  border-color: rgba(107, 158, 255, 0.2);
+  background: rgba(107, 158, 255, 0.16);
+  border-color: rgba(107, 158, 255, 0.32);
   color: #eef4ff;
+  box-shadow: inset 0 0 0 1px rgba(107, 158, 255, 0.06);
 }
 
 .source-box {
@@ -898,11 +906,18 @@ onMounted(() => {
   border: 1px solid rgba(255, 117, 141, 0.22);
 }
 
-.status-pill--high,
-.status--high {
-  background: rgba(255, 193, 94, 0.18);
-  color: #ffe1b3;
-  border: 1px solid rgba(255, 208, 132, 0.22);
+.status-pill--warning,
+.status--warning {
+  background: linear-gradient(180deg, rgba(222, 169, 84, 0.24), rgba(224, 153, 54, 0.22));
+  color: #ffe6bd;
+  border: 1px solid rgba(255, 208, 132, 0.24);
+}
+
+.status-pill--ml-anomaly,
+.status--ml-anomaly {
+  background: linear-gradient(180deg, rgba(121, 140, 220, 0.22), rgba(72, 91, 160, 0.2));
+  color: #d7e4ff;
+  border: 1px solid rgba(120, 151, 235, 0.24);
 }
 
 .status-pill--normal,

@@ -34,7 +34,7 @@ const faq: FaqItem[] = [
   },
   {
     q: 'Why do I need to click Save Changes in Settings?',
-    a: 'Changing the active model or threshold only updates the selection in the interface. Save Changes starts the ML pipeline again, retrains the models with the selected settings and refreshes the stored metrics.',
+    a: 'Changing the active model or threshold updates the saved application settings. Save Changes stores the selected model, radiation threshold and notification settings, then refreshes the displayed monitoring data. Model training is run separately through the ML pipeline.',
   },
   {
     q: 'What does Model Testing show?',
@@ -68,7 +68,7 @@ const usageNotes: UsageItem[] = [
   },
   {
     title: 'Settings',
-    description: 'Choose the active detection model, adjust the threshold and save changes to retrain models and refresh metrics.',
+    description: 'Choose the active detection model, adjust the radiation threshold and notification settings, then save the configuration. Model training is run separately through the ML pipeline.',
     badge: 'Config',
   },
   {
@@ -86,7 +86,7 @@ const usageNotes: UsageItem[] = [
 const modelGroups: UsageItem[] = [
   {
     title: 'Unsupervised models',
-    description: 'Isolation Forest, Local Outlier Factor, One-Class SVM, K-Means Distance, Gaussian Mixture Model, PCA Reconstruction Error, HBOS and ECOD. DBSCAN is included separately as a clustering-based baseline because it marks low-density points as noise instead of using the same reusable train/predict workflow.',
+    description: 'Isolation Forest, Local Outlier Factor, One-Class SVM, K-Means, Gaussian Mixture Model, PCA, HBOS and ECOD. DBSCAN is included separately as a clustering-based baseline because it marks low-density points as noise instead of using the same reusable train/predict workflow.',
     badge: '9 models',
   },
   {
@@ -96,7 +96,7 @@ const modelGroups: UsageItem[] = [
   },
   {
     title: 'Evaluation outputs',
-    description: 'The project generates model_evaluation_report.md, full metric CSV tables, best-metric markers, confusion matrices, ROC/PR curves, bar charts and anomaly score box plots.',
+    description: 'The project generates model_evaluation_report.md, full metric CSV tables, best-metric markers, feature diagnostics, confusion matrices, ROC/PR curves and comparison bar charts.',
     badge: 'Outputs',
   },
   {

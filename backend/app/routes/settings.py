@@ -1,4 +1,4 @@
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from app.services.database_settings_service import (
@@ -6,7 +6,6 @@ from app.services.database_settings_service import (
     update_threshold_in_database,
     update_active_model_in_database,
 )
-from app.services.pipeline_service import start_pipeline_in_background
 
 
 router = APIRouter(tags=["settings"])
@@ -25,30 +24,37 @@ def read_settings():
     try:
         return get_settings_from_database()
     except Exception as error:
-        raise HTTPException(status_code=400, detail=str(error))
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
+        )
+
 
 @router.put("/settings/threshold")
 def update_threshold(
-        payload: ThresholdUpdateRequest,
-        background_tasks: BackgroundTasks,
+    payload: ThresholdUpdateRequest,
 ):
     try:
-        settings = update_threshold_in_database(payload.threshold)
-        pipeline_status = start_pipeline_in_background(
-            background_tasks,
-            mode="threshold-update",
+        return update_threshold_in_database(
+            payload.threshold
+        )
+    except Exception as error:
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
         )
 
-        return {
-            **settings,
-            "pipeline": pipeline_status,
-        }
-    except Exception as error:
-        raise HTTPException(status_code=400, detail=str(error))
 
 @router.put("/settings/model")
-def update_model(payload: ModelUpdateRequest):
+def update_model(
+    payload: ModelUpdateRequest,
+):
     try:
-        return update_active_model_in_database(payload.activeModel)
+        return update_active_model_in_database(
+            payload.activeModel
+        )
     except Exception as error:
-        raise HTTPException(status_code=400, detail=str(error))
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
+        )

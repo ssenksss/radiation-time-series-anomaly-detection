@@ -81,8 +81,9 @@ CREATE TABLE anomaly_results (
                                  radiation_level DOUBLE PRECISION NOT NULL,
                                  predicted_anomaly BOOLEAN NOT NULL,
                                  anomaly_score DOUBLE PRECISION NOT NULL,
-                                 status VARCHAR(50) NOT NULL,
+                                 status VARCHAR(50),
                                  model_name VARCHAR(100) NOT NULL DEFAULT 'Isolation Forest',
+                                 evaluation_split VARCHAR(10) NOT NULL DEFAULT 'full',
                                  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 

@@ -1,27 +1,25 @@
 # ML evaluacija — beleške za diplomski rad
 
-Ovaj fajl koristim kao pomoćne beleške za poglavlje o evaluaciji modela. Nije zamišljen kao glavni tekst diplomskog rada, već kao pregled onoga što je urađeno u ML delu projekta.
+Ovaj dokument predstavlja pomoćni pregled ML dela projekta. Nije zamena za glavno poglavlje diplomskog rada, već sažetak implementirane logike i načina tumačenja rezultata.
 
 ## Ideja aplikacije
 
-Aplikacija je zamišljena kao sistem u koji se učitavaju merenja nivoa zračenja, a zatim se nad tim podacima vrši detekcija anomalija. Trenutno se podaci učitavaju iz CSV ili ZIP fajlova, dok je kasnije moguće proširenje na podatke koji stižu u realnom vremenu.
+Aplikacija učitava merenja nivoa zračenja i nad njima vrši detekciju anomalija. Trenutno se podaci unose preko CSV ili ZIP fajlova, dok je obrada podataka u realnom vremenu planirana kao buduće proširenje.
 
-Kod mock podataka postoji kolona `is_anomaly`. Ona predstavlja poznatu oznaku i može da se koristi za proveru tačnosti modela. Kod realnih podataka ova kolona ne mora da postoji. U tom slučaju sistem ne može da zna unapred šta je stvarna anomalija, već model sam generiše rezultat `predicted_anomaly` i vrednost `anomaly_score`.
+Kod mock podataka postoji kolona `is_anomaly`, koja predstavlja poznatu oznaku. Kod realnih podataka ova kolona ne mora da postoji. U tom slučaju model generiše `predicted_anomaly` i `anomaly_score`, ali sistem ne prikazuje metrike za koje je potrebna poznata tačna oznaka.
 
-Zato su u projektu jasno razdvojena dva slučaja:
+Zato su razdvojena dva slučaja:
 
-- podaci sa labelama, gde je moguća evaluacija modela
-- podaci bez labela, gde je moguća detekcija anomalija, ali ne i računanje supervised metrika
+- podaci sa labelama, kod kojih je moguća objektivna evaluacija
+- podaci bez labela, kod kojih je moguća detekcija, ali ne i računanje supervised metrika
 
-## Zašto koristim supervised i unsupervised modele
+## Zašto se koriste supervised i unsupervised modeli
 
-U projektu su zadržana oba pristupa zato što odgovaraju različitim situacijama.
+Unsupervised modeli su važni za realne podatke jer u praksi često ne postoji unapred pripremljena oznaka anomalije. Oni uče strukturu podataka bez korišćenja `is_anomaly` kolone. Ako labele postoje, koriste se tek nakon predikcije za proveru rezultata.
 
-Unsupervised modeli su važni za realne podatke, jer u praksi često ne postoji ručno označena kolona koja govori da li je neko merenje anomalija. Ovi modeli ne koriste labele tokom treniranja, već pokušavaju da pronađu neuobičajene zapise na osnovu strukture podataka.
+Supervised modeli se koriste samo kada postoje poznati primeri normalnih i anomalnih merenja. Oni uče iz tih primera, a zatim se ocenjuju na kasnijem test periodu.
 
-Supervised modeli se koriste kada postoji kolona `is_anomaly`. Tada model može da uči iz poznatih primera normalnih i anomalnih merenja, pa se njegov rezultat može uporediti sa stvarnom oznakom.
-
-Ovakva podela mi omogućava da prikažem i praktičan scenario rada sa realnim podacima bez labela, i kontrolisanu evaluaciju na označenom skupu podataka.
+Ova podela omogućava prikaz praktičnog scenarija bez labela i kontrolisane evaluacije na označenom skupu.
 
 ## Korišćeni modeli
 
@@ -31,13 +29,15 @@ Ovakva podela mi omogućava da prikažem i praktičan scenario rada sa realnim p
 - Local Outlier Factor
 - One-Class SVM
 - DBSCAN
-- K-Means Distance
+- K-Means
 - Gaussian Mixture Model
-- PCA Reconstruction Error
+- PCA
 - HBOS
 - ECOD
 
-Ovi modeli nisu izabrani nasumično. Pokrivaju nekoliko čestih pristupa detekciji anomalija: izolaciju neuobičajenih tačaka, lokalnu gustinu, učenje granice normalnog ponašanja, klasterizaciju, udaljenost od centra klastera, probabilističko modelovanje, rekonstrukcionu grešku i distribucione metode.
+Modeli pokrivaju izolacione, lokalno-gustinske, granične, klasterske, probabilističke, rekonstrukcione i distribucione pristupe detekciji anomalija.
+
+DBSCAN je zadržan kao clustering baseline. Standardni DBSCAN nema isti reusable `predict` tok za buduće zapise kao ostali operativni detektori.
 
 ### Supervised modeli
 
@@ -47,22 +47,18 @@ Ovi modeli nisu izabrani nasumično. Pokrivaju nekoliko čestih pristupa detekci
 - Gradient Boosting
 - KNN Classifier
 
-Ovi modeli predstavljaju standardne tradicionalne klasifikacione algoritme. Izabrani su da bi se uporedili jednostavan linearni model, interpretabilan model stabla, ensemble modeli i distance-based klasifikator.
+Ovim izborom porede se linearni klasifikator, interpretabilno stablo, dva ensemble pristupa i distance-based klasifikator.
 
 ## Train/test podela
 
-Pošto su podaci vremenska serija, korišćena je hronološka podela umesto slučajne podele.
+Pošto su podaci vremenska serija, koristi se hronološka podela:
 
 ```text
-prvih 70% podataka  -> trening skup
-poslednjih 30%      -> test skup
+prvih 70% podataka  → trening skup
+poslednjih 30%      → test skup
 ```
 
-Ovo je logičnije za ovakav tip podataka, jer model ne treba da trenira na budućim merenjima i zatim se testira na ranijim merenjima.
-
-Kod unsupervised modela labele se ne koriste tokom treniranja. Ako labele postoje, koriste se tek posle predikcije, za računanje metrika.
-
-DBSCAN je poseban slučaj, jer standardni DBSCAN nema klasičnu `predict` metodu za nove podatke. Zbog toga je u projektu tretiran kao clustering baseline. Koristan je za poređenje, ali nije najpraktičniji izbor za budući real-time rad.
+Model zato ne trenira na budućim merenjima pa se zatim testira na ranijim. Vrednosti za popunjavanje nedostajućih podataka i parametri skaliranja računaju se samo iz trening skupa.
 
 ## Metrike
 
@@ -74,39 +70,33 @@ Za označene podatke računaju se:
 - F1-score
 - ROC-AUC
 - PR-AUC
-- FPR
-- FNR
+- FPR i FNR
 - TP, TN, FP i FN
-- vreme treniranja
-- vreme predikcije
+- vreme treniranja i predikcije
 - statistika anomaly score vrednosti
 
-Za accuracy, precision, recall, F1-score, ROC-AUC i PR-AUC bolji je veći rezultat. Za FPR, FNR, standardnu devijaciju, varijansu, vreme treniranja i vreme predikcije bolji je manji rezultat.
+Accuracy nije dovoljna kao jedini kriterijum jer su anomalije retke. Zbog neuravnoteženosti skupa posebno su važni precision, recall, F1-score, PR-AUC i konfuziona matrica.
 
-Accuracy nije dovoljna sama po sebi, jer su anomalije retke. Model može da ima visoku accuracy vrednost čak i ako ne pronađe dovoljno anomalija. Zato su za ovaj problem posebno važni recall, precision, F1-score i PR-AUC.
+Regresione metrike MAE, MSE, RMSE i R² nisu primarne jer cilj nije predikcija sledeće tačne vrednosti zračenja, već klasifikacija ili detekcija anomalnih merenja.
 
-Regresione metrike kao MAE, MSE, RMSE i R² nisu korišćene kao glavne metrike zato što cilj ovog rada nije predikcija tačne numeričke vrednosti nivoa zračenja. Cilj je detekcija da li je merenje normalno ili anomalno.
+Standardna devijacija i varijansa anomaly score vrednosti prikazuju raspodelu rezultata jednog modela. Ne koriste se za proglašavanje najboljeg modela jer različiti algoritmi proizvode score vrednosti na različitim skalama.
 
 ## Vizuelizacije
 
-U projektu se generišu sledeći grafici:
+Projekat generiše:
 
+- poređenje accuracy, precision, recall i F1-score vrednosti
+- poređenje ROC-AUC i PR-AUC vrednosti
 - konfuzione matrice
 - ROC krive
-- Precision-Recall krive
-- poređenje klasifikacionih metrika
-- poređenje ROC-AUC i PR-AUC vrednosti
-- vreme treniranja i predikcije
-- box plot anomaly score vrednosti
-- swarm plot anomaly score vrednosti
-- learning curves za supervised modele
-- convergence prikaz za Gradient Boosting
-
-Ovi grafici služe da se rezultati ne prikažu samo u tabeli, već i vizuelno.
+- Precision-Recall krive sa positive-class baseline vrednošću
+- grafikone vremena treniranja i predikcije
+- raspodele karakteristika pre i posle skaliranja
+- korelacionu matricu ulaznih karakteristika
 
 ## Realni podaci bez labela
 
-Ako realni dataset nema kolonu `is_anomaly`, tada se ne prikazuju accuracy, precision, recall i F1-score, jer ne postoji stvarna oznaka sa kojom bi se rezultat uporedio.
+Ako dataset nema kolonu `is_anomaly`, ne prikazuju se accuracy, precision, recall, F1-score, ROC-AUC ili konfuziona matrica. Bez ground-truth oznake te vrednosti ne mogu objektivno da se izračunaju.
 
 U tom slučaju sistem prikazuje:
 
@@ -116,10 +106,8 @@ U tom slučaju sistem prikazuje:
 - standardnu devijaciju i varijansu score vrednosti
 - listu detektovanih anomalija
 
-Ovo je važno zato što sistem ne izmišlja evaluacione rezultate. Ako nema labela, postoji detekcija anomalija, ali ne postoji objektivna supervised evaluacija.
+Na taj način sistem ne izmišlja evaluacione rezultate za realne neoznačene podatke.
 
-## Formulacija za diplomski
+## Predložena formulacija za rad
 
-U radu se može objasniti ovako:
-
-> Sistem trenutno obrađuje podatke učitane iz CSV fajlova, dok je struktura aplikacije postavljena tako da se kasnije može proširiti na rad sa podacima u realnom vremenu. Kod označenih skupova podataka koristi se kolona `is_anomaly`, koja omogućava izračunavanje klasifikacionih metrika. Kod neoznačenih realnih skupova podataka sistem sam generiše predikciju anomalije, ali ne računa supervised metrike jer ne postoji ground-truth oznaka.
+Sistem trenutno obrađuje podatke učitane iz CSV ili ZIP fajlova, dok je arhitektura postavljena tako da se kasnije može proširiti obradom podataka u realnom vremenu. Kod označenih skupova kolona `is_anomaly` omogućava treniranje supervised modela i objektivnu proveru predikcija. Unsupervised modeli ne koriste ovu kolonu tokom treniranja, već samo prilikom naknadne evaluacije. Kod neoznačenih realnih skupova sistem generiše predikcije anomalija, ali ne računa metrike za koje ne postoji ground-truth oznaka.

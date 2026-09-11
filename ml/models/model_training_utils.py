@@ -20,8 +20,6 @@ FEATURE_COLUMNS = [
     "radiation_diff",
 ]
 
-MAX_CONTAMINATION = 0.20
-FALLBACK_CONTAMINATION = 0.03
 RANDOM_STATE = 42
 TRAIN_RATIO = 0.70
 
@@ -36,10 +34,7 @@ def get_active_dataset_id() -> int:
     return int(row["value"])
 
 
-def get_threshold() -> float:
-    # use default threshold if there is no saved value
-    row = fetch_one("SELECT value FROM app_settings WHERE key = 'threshold';")
-    return float(row["value"]) if row else 0.18
+
 
 
 def load_feature_measurements(dataset_id: int) -> pd.DataFrame:
@@ -95,107 +90,73 @@ def chronological_train_test_split(
     return train_dataframe, test_dataframe
 
 
-def safe_fill_feature_columns(dataframe: pd.DataFrame) -> pd.DataFrame:
-    # models need numeric values without missing data
-    filled = dataframe.copy()
+def convert_feature_columns_to_numeric(
+    dataframe: pd.DataFrame,
+) -> pd.DataFrame:
+    # convert model features to numeric values
+    converted = dataframe.copy()
 
     for column in FEATURE_COLUMNS:
-        filled[column] = pd.to_numeric(filled[column], errors="coerce")
+        converted[column] = pd.to_numeric(
+            converted[column],
+            errors="coerce",
+        )
 
-    medians = filled[FEATURE_COLUMNS].median(numeric_only=True)
-    filled[FEATURE_COLUMNS] = filled[FEATURE_COLUMNS].fillna(medians).fillna(0)
-
-    return filled
-
-
-def calculate_contamination_from_threshold(dataframe: pd.DataFrame, threshold: float) -> float:
-    """
-    estimate expected anomaly ratio from the selected threshold
-
-    some unsupervised models use this value as contamination
-    """
-    if dataframe.empty or "radiation_level" not in dataframe.columns:
-        return FALLBACK_CONTAMINATION
-
-    ratio_above_threshold = float((dataframe["radiation_level"] > threshold).mean())
-
-    if ratio_above_threshold <= 0:
-        return FALLBACK_CONTAMINATION
-
-    return min(MAX_CONTAMINATION, ratio_above_threshold)
+    return converted
 
 
-def normalize_scores(scores: Iterable[float]) -> np.ndarray:
-    # scale scores to 0-1 when needed
-    values = np.asarray(scores, dtype=float)
+def fill_missing_features_from_train(
+    train_dataframe: pd.DataFrame,
+    other_dataframe: pd.DataFrame,
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    # calculate replacement values only from training data
+    train_filled = train_dataframe.copy()
+    other_filled = other_dataframe.copy()
 
-    if len(values) == 0:
-        return values
+    train_medians = train_filled[FEATURE_COLUMNS].median(
+        numeric_only=True
+    )
 
-    min_value = float(values.min())
-    max_value = float(values.max())
+    train_filled[FEATURE_COLUMNS] = (
+        train_filled[FEATURE_COLUMNS]
+        .fillna(train_medians)
+        .fillna(0)
+    )
 
-    if max_value == min_value:
-        return np.zeros_like(values)
+    other_filled[FEATURE_COLUMNS] = (
+        other_filled[FEATURE_COLUMNS]
+        .fillna(train_medians)
+        .fillna(0)
+    )
 
-    return (values - min_value) / (max_value - min_value)
+    return train_filled, other_filled
 
-
-def build_top_score_predictions(scores: Iterable[float], contamination: float) -> np.ndarray:
-    """
-    mark records with the highest scores as anomalies
-
-    used for models that return scores instead of direct labels
-    """
-    values = np.asarray(scores, dtype=float)
-
-    if len(values) == 0:
-        return np.array([], dtype=bool)
-
-    anomaly_count = max(1, int(round(len(values) * contamination)))
-    anomaly_count = min(len(values), anomaly_count)
-
-    threshold_index = len(values) - anomaly_count
-    score_threshold = np.partition(values, threshold_index)[threshold_index]
-
-    return values >= score_threshold
-
-
-def build_status(radiation_level: float, predicted_anomaly: bool, threshold: float) -> str:
-    # status is used later in the dashboard
-    if not predicted_anomaly:
-        return "normal"
-
-    if threshold > 0 and radiation_level >= threshold * 2:
-        return "critical"
-
-    return "high"
 
 
 def add_result_columns(
         dataframe: pd.DataFrame,
         predicted_anomaly: Iterable[bool],
         anomaly_scores: Iterable[float],
-        threshold: float,
-) -> pd.DataFrame:
+        ) -> pd.DataFrame:
     # prepare columns for anomaly_results table
     results = dataframe.copy()
-    results["predicted_anomaly"] = np.asarray(predicted_anomaly).astype(bool)
-    results["anomaly_score"] = np.asarray(anomaly_scores, dtype=float)
 
-    results["status"] = results.apply(
-        lambda row: build_status(
-            float(row["radiation_level"]),
-            bool(row["predicted_anomaly"]),
-            threshold,
-        ),
-        axis=1,
+    results["predicted_anomaly"] = np.asarray(
+        predicted_anomaly
+    ).astype(bool)
+
+    results["anomaly_score"] = np.asarray(
+        anomaly_scores,
+        dtype=float,
     )
 
     return results
 
-
-def replace_anomaly_results(dataset_id: int, model_name: str, results: pd.DataFrame) -> None:
+def replace_anomaly_results(
+    dataset_id: int,
+    model_name: str,
+    results: pd.DataFrame,
+) -> None:
     # remove old rows before saving new model results
     execute_query(
         """
@@ -210,16 +171,16 @@ def replace_anomaly_results(dataset_id: int, model_name: str, results: pd.DataFr
 
     for _, item in results.iterrows():
         rows.append(
-            (
-                dataset_id,
-                int(item["id"]),
-                item["timestamp"].to_pydatetime(),
-                float(item["radiation_level"]),
-                bool(item["predicted_anomaly"]),
-                float(item["anomaly_score"]),
-                str(item["status"]),
-                model_name,
-            )
+(
+        dataset_id,
+        int(item["id"]),
+        item["timestamp"].to_pydatetime(),
+        float(item["radiation_level"]),
+        bool(item["predicted_anomaly"]),
+        float(item["anomaly_score"]),
+        model_name,
+        str(item.get("evaluation_split", "full")),
+        )
         )
 
     execute_many(
@@ -231,14 +192,13 @@ def replace_anomaly_results(dataset_id: int, model_name: str, results: pd.DataFr
             radiation_level,
             predicted_anomaly,
             anomaly_score,
-            status,
-            model_name
-        )
+            model_name,
+            evaluation_split
+            )
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s);
         """,
         rows,
     )
-
 
 def mark_dataset_as_model_trained(dataset_id: int) -> None:
     # update dataset status after model training

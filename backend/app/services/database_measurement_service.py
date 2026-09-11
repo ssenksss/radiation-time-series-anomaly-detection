@@ -6,9 +6,9 @@ MODEL_ID_TO_NAME = {
     "lof": "Local Outlier Factor",
     "one_class_svm": "One-Class SVM",
     "dbscan": "DBSCAN",
-    "kmeans_distance": "K-Means Distance",
+    "kmeans_distance": "K-Means",
     "gaussian_mixture": "Gaussian Mixture Model",
-    "pca_reconstruction": "PCA Reconstruction Error",
+    "pca_reconstruction": "PCA",
     "hbos": "HBOS",
     "ecod": "ECOD",
     "logistic_regression": "Logistic Regression",
@@ -114,17 +114,26 @@ def get_threshold() -> float:
     return float(row["value"])
 
 
-def classify_radiation_event(radiation_level: float, threshold: float) -> tuple[str, str]:
-    if threshold <= 0:
-        return "normal", "Normal"
+def classify_radiation_event(
+    radiation_level: float,
+    predicted_anomaly: bool,
+    threshold: float,
+) -> tuple[str, str]:
+    threshold_exceeded = (
+        threshold > 0
+        and radiation_level >= threshold
+    )
 
-    if radiation_level < threshold:
-        return "normal", "Normal"
+    if predicted_anomaly and threshold_exceeded:
+        return "critical", "Critical"
 
-    if radiation_level >= threshold * 2:
-        return "spike", "Critical"
+    if predicted_anomaly:
+        return "ml_anomaly", "ML Anomaly"
 
-    return "warning", "High"
+    if threshold_exceeded:
+        return "warning", "Warning"
+
+    return "normal", "Normal"
 
 
 def get_measurements_from_database(limit: int = 1000) -> list:
@@ -166,8 +175,8 @@ def get_measurements_from_database(limit: int = 1000) -> list:
 
     for row in rows:
         radiation_level = float(row["radiation_level"])
-        anomaly_type, status = classify_radiation_event(radiation_level, threshold)
-        is_visible_anomaly = bool(row["predicted_anomaly"]) and radiation_level >= threshold
+        predicted_anomaly = bool(row["predicted_anomaly"])
+        anomaly_type, status = classify_radiation_event(radiation_level,predicted_anomaly,threshold,)
 
         measurements.append(
             {
@@ -177,7 +186,7 @@ def get_measurements_from_database(limit: int = 1000) -> list:
                 "location": str(row["location"]),
                 "temperature": None if row["temperature"] is None else round(float(row["temperature"]), 2),
                 "humidity": None if row["humidity"] is None else round(float(row["humidity"]), 2),
-                "isAnomaly": is_visible_anomaly,
+                "isAnomaly": predicted_anomaly,
                 "anomalyScore": round(float(row["anomaly_score"]), 4),
                 "anomalyType": anomaly_type,
                 "status": status,

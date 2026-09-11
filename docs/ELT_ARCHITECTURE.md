@@ -58,9 +58,10 @@ Cleaning includes:
 
 - removing invalid timestamps
 - removing invalid radiation values
-- filling missing temperature and humidity values with median values
 - normalizing sensor and location values
 - keeping original labels when they exist
+
+Missing temperature and humidity values remain nullable in this layer. Before model fitting, they are replaced with median values calculated only from the chronological training split. This prevents information from the test period from influencing preprocessing.
 
 The important idea is that cleaning prepares the data, but it does not change the meaning of the original measurements.
 
@@ -102,9 +103,8 @@ It includes:
 - model name
 - predicted anomaly value
 - anomaly score
-- status label
-- threshold value
 - measurement reference
+- train/test split membership used for evaluation
 
 This makes it possible to compare different models on the same dataset.
 

@@ -11,19 +11,42 @@ import matplotlib
 matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
+from matplotlib.colors import LinearSegmentedColormap
 import numpy as np
 import pandas as pd
 from sklearn.metrics import (
-    average_precision_score,
     f1_score,
+    log_loss,
     precision_recall_curve,
     roc_curve,
 )
 from sklearn.preprocessing import StandardScaler
-from sklearn.linear_model import LogisticRegression
-from sklearn.tree import DecisionTreeClassifier
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
-from sklearn.neighbors import KNeighborsClassifier
+
+from ml.models.supervised.train_logistic_regression import (
+    MODEL_NAME as LOGISTIC_REGRESSION_NAME,
+    REQUIRES_SCALING as LOGISTIC_REGRESSION_SCALING,
+    build_model as build_logistic_regression,
+)
+from ml.models.supervised.train_decision_tree import (
+    MODEL_NAME as DECISION_TREE_NAME,
+    REQUIRES_SCALING as DECISION_TREE_SCALING,
+    build_model as build_decision_tree,
+)
+from ml.models.supervised.train_random_forest import (
+    MODEL_NAME as RANDOM_FOREST_NAME,
+    REQUIRES_SCALING as RANDOM_FOREST_SCALING,
+    build_model as build_random_forest,
+)
+from ml.models.supervised.train_gradient_boosting import (
+    MODEL_NAME as GRADIENT_BOOSTING_NAME,
+    REQUIRES_SCALING as GRADIENT_BOOSTING_SCALING,
+    build_model as build_gradient_boosting,
+)
+from ml.models.supervised.train_knn_classifier import (
+    MODEL_NAME as KNN_CLASSIFIER_NAME,
+    REQUIRES_SCALING as KNN_CLASSIFIER_SCALING,
+    build_model as build_knn_classifier,
+)
 
 from db import fetch_one, fetch_all
 
@@ -50,52 +73,208 @@ FEATURE_COLUMNS = [
     "radiation_diff",
 ]
 
-SUPERVISED_MODEL_BUILDERS = {
-    "Logistic Regression": {
-        "requires_scaling": True,
-        "builder": lambda: LogisticRegression(
-            max_iter=1000,
-            class_weight="balanced",
-            random_state=42,
-        ),
+SUPERVISED_MODELS = [
+    {
+        "name": LOGISTIC_REGRESSION_NAME,
+        "requires_scaling": LOGISTIC_REGRESSION_SCALING,
+        "build_model": build_logistic_regression,
     },
-    "Decision Tree": {
-        "requires_scaling": False,
-        "builder": lambda: DecisionTreeClassifier(
-            max_depth=5,
-            min_samples_leaf=5,
-            class_weight="balanced",
-            random_state=42,
-        ),
+    {
+        "name": DECISION_TREE_NAME,
+        "requires_scaling": DECISION_TREE_SCALING,
+        "build_model": build_decision_tree,
     },
-    "Random Forest": {
-        "requires_scaling": False,
-        "builder": lambda: RandomForestClassifier(
-            n_estimators=150,
-            max_depth=7,
-            min_samples_leaf=4,
-            class_weight="balanced",
-            random_state=42,
-            n_jobs=-1,
-        ),
+    {
+        "name": RANDOM_FOREST_NAME,
+        "requires_scaling": RANDOM_FOREST_SCALING,
+        "build_model": build_random_forest,
     },
-    "Gradient Boosting": {
-        "requires_scaling": False,
-        "builder": lambda: GradientBoostingClassifier(
-            n_estimators=80,
-            learning_rate=0.04,
-            max_depth=2,
-            random_state=42,
-        ),
+    {
+        "name": GRADIENT_BOOSTING_NAME,
+        "requires_scaling": GRADIENT_BOOSTING_SCALING,
+        "build_model": build_gradient_boosting,
     },
-    "KNN Classifier": {
-        "requires_scaling": True,
-        "builder": lambda: KNeighborsClassifier(
-            n_neighbors=9,
-            weights="distance",
-        ),
+    {
+        "name": KNN_CLASSIFIER_NAME,
+        "requires_scaling": KNN_CLASSIFIER_SCALING,
+        "build_model": build_knn_classifier,
     },
+]
+
+
+MODEL_ORDER = [
+    "Isolation Forest",
+    "Local Outlier Factor",
+    "One-Class SVM",
+    "DBSCAN",
+    "K-Means",
+    "Gaussian Mixture Model",
+    "PCA",
+    "HBOS",
+    "ECOD",
+    "Logistic Regression",
+    "Decision Tree",
+    "Random Forest",
+    "Gradient Boosting",
+    "KNN Classifier",
+]
+
+# pastel model colors used consistently in every figure
+MODEL_COLORS = {
+    "Isolation Forest": "#6CC9FEDA",
+    "Local Outlier Factor": "#FDBF6F",
+    "One-Class SVM": "#7BFA7FE1",
+    "DBSCAN": "#FB8072",
+    "K-Means": "#B39DDB",
+    "Gaussian Mixture Model": "#C49A6C",
+    "PCA": "#88B3CA",
+    "HBOS": "#BDBDBD",
+    "ECOD": "#D9D76E",
+
+    "Logistic Regression": "#80CDC1",
+    "Decision Tree": "#C4E7FA",
+    "Random Forest": "#F082CB",
+    "Gradient Boosting": "#C5F79A",
+    "KNN Classifier": "#F4A6A6",
 }
+
+FEATURE_COLORS = [
+    "#7BAFD4",
+    "#F4B860",
+    "#7ACFA6",
+    "#F28B82",
+    "#B69DE6",
+    "#E6A1C9",
+    "#8FD3F4",
+    "#7DD3C7",
+]
+
+FIGURE_BACKGROUND = "#FAFAFA"
+AXES_BACKGROUND = "#FFFFFF"
+TEXT_COLOR = "#1F2937"
+MUTED_TEXT_COLOR = "#6B7280"
+GRID_COLOR = "#E5E7EB"
+BORDER_COLOR = "#9CA3AF"
+UNSUPERVISED_GROUP_COLOR = "#8CBAD9"
+SUPERVISED_GROUP_COLOR = "#F6C78F"
+
+CONFUSION_CMAP = LinearSegmentedColormap.from_list(
+    "soft_confusion_blue",
+    ["#F8FBFF", "#DBEAFE", "#93C5FD", "#3B82F6", "#1D4ED8"],
+)
+
+CORRELATION_CMAP = LinearSegmentedColormap.from_list(
+    "soft_correlation",
+    ["#6BAED6", "#F7FBFF", "#FB8072"],
+)
+
+# clean publication-style plot defaults
+plt.rcParams.update({
+    "font.family": "DejaVu Sans",
+    "figure.facecolor": FIGURE_BACKGROUND,
+    "axes.facecolor": AXES_BACKGROUND,
+    "axes.edgecolor": BORDER_COLOR,
+    "axes.labelcolor": TEXT_COLOR,
+    "xtick.color": TEXT_COLOR,
+    "ytick.color": TEXT_COLOR,
+    "text.color": TEXT_COLOR,
+    "font.size": 10,
+    "axes.titlesize": 13,
+    "axes.titleweight": "semibold",
+    "axes.labelsize": 11,
+    "figure.titlesize": 17,
+    "figure.titleweight": "semibold",
+    "legend.fontsize": 8.5,
+    "grid.color": GRID_COLOR,
+    "grid.linewidth": 0.65,
+    "grid.alpha": 0.55,
+    "axes.spines.top": False,
+    "axes.spines.right": False,
+    "savefig.dpi": 300,
+})
+
+
+def get_model_color(model_name: str):
+    return MODEL_COLORS.get(model_name, "#64748B")
+
+
+def get_model_group_color(model_name: str) -> str:
+    if model_name in MODEL_ORDER[9:]:
+        return SUPERVISED_GROUP_COLOR
+    return UNSUPERVISED_GROUP_COLOR
+
+
+def style_axes(axis, grid_axis: str = "y", show_grid: bool = True) -> None:
+    axis.set_facecolor(AXES_BACKGROUND)
+    axis.spines["left"].set_color(BORDER_COLOR)
+    axis.spines["bottom"].set_color(BORDER_COLOR)
+    axis.spines["left"].set_linewidth(0.9)
+    axis.spines["bottom"].set_linewidth(0.9)
+    axis.tick_params(axis="both", labelsize=9.5, length=3.5, width=0.8)
+
+    if show_grid:
+        axis.grid(axis=grid_axis, linestyle="--", linewidth=0.65, alpha=0.55)
+        axis.set_axisbelow(True)
+
+
+def style_legend(axis, location: str = "best", columns: int = 1) -> None:
+    legend = axis.legend(
+        loc=location,
+        ncol=columns,
+        frameon=True,
+        facecolor="white",
+        edgecolor="#E5E7EB",
+        framealpha=0.96,
+        fancybox=True,
+    )
+
+    if legend is not None:
+        legend.get_frame().set_linewidth(0.8)
+
+
+def apply_boxplot_style(result, colors: list[str]) -> None:
+    for patch, color in zip(result["boxes"], colors):
+        patch.set_facecolor(color)
+        patch.set_alpha(0.78)
+        patch.set_edgecolor("#374151")
+        patch.set_linewidth(0.9)
+
+    for median in result["medians"]:
+        median.set_color("#111827")
+        median.set_linewidth(1.5)
+
+    for whisker in result["whiskers"]:
+        whisker.set_color("#6B7280")
+        whisker.set_linewidth(0.9)
+
+    for cap in result["caps"]:
+        cap.set_color("#6B7280")
+        cap.set_linewidth(0.9)
+
+
+def order_model_dataframe(dataframe: pd.DataFrame) -> pd.DataFrame:
+    if dataframe.empty or "model_name" not in dataframe.columns:
+        return dataframe
+
+    order_map = {
+        model_name: index
+        for index, model_name in enumerate(MODEL_ORDER)
+    }
+
+    result = dataframe.copy()
+    result["_model_order"] = (
+        result["model_name"]
+        .map(order_map)
+        .fillna(len(MODEL_ORDER))
+    )
+
+    return (
+        result
+        .sort_values(["_model_order", "model_name"])
+        .drop(columns=["_model_order"])
+        .reset_index(drop=True)
+    )
+
 
 HIGHER_IS_BETTER = [
     "accuracy",
@@ -109,8 +288,6 @@ HIGHER_IS_BETTER = [
 LOWER_IS_BETTER = [
     "fpr",
     "fnr",
-    "score_std",
-    "score_variance",
     "training_time_seconds",
     "prediction_time_seconds",
 ]
@@ -381,29 +558,125 @@ def get_labeled_feature_dataframe(dataset_id: int) -> pd.DataFrame:
     if dataframe.empty:
         return dataframe
 
-    dataframe["timestamp"] = pd.to_datetime(dataframe["timestamp"])
+    dataframe["timestamp"] = pd.to_datetime(
+        dataframe["timestamp"]
+    )
 
     for column in FEATURE_COLUMNS:
-        dataframe[column] = pd.to_numeric(dataframe[column], errors="coerce")
+        dataframe[column] = pd.to_numeric(
+            dataframe[column],
+            errors="coerce",
+        )
 
-    dataframe["original_label"] = dataframe["original_label"].astype(int)
-    dataframe = dataframe.dropna(subset=["original_label"])
+    dataframe["original_label"] = (
+        dataframe["original_label"]
+        .astype(int)
+    )
 
-    for column in FEATURE_COLUMNS:
-        if dataframe[column].isna().any():
-            median_value = dataframe[column].median()
-            dataframe[column] = dataframe[column].fillna(0 if pd.isna(median_value) else median_value)
+    dataframe = dataframe.dropna(
+        subset=["original_label"]
+    )
 
     return dataframe
 
 
-def chronological_train_test_split(dataframe: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    split_index = int(len(dataframe) * TRAIN_RATIO)
+def chronological_train_test_split(
+    dataframe: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    ordered_dataframe = (
+        dataframe
+        .sort_values("timestamp")
+        .reset_index(drop=True)
+    )
 
-    if split_index <= 0 or split_index >= len(dataframe):
-        return dataframe.copy(), dataframe.copy()
+    split_index = int(
+        len(ordered_dataframe)
+        * TRAIN_RATIO
+    )
 
-    return dataframe.iloc[:split_index].copy(), dataframe.iloc[split_index:].copy()
+    if (
+        split_index <= 0
+        or split_index >= len(ordered_dataframe)
+    ):
+        return (
+            ordered_dataframe.copy(),
+            ordered_dataframe.copy(),
+        )
+
+    train_dataframe = (
+        ordered_dataframe
+        .iloc[:split_index]
+        .copy()
+    )
+
+    test_dataframe = (
+        ordered_dataframe
+        .iloc[split_index:]
+        .copy()
+    )
+
+    train_medians = (
+        train_dataframe[
+            FEATURE_COLUMNS
+        ]
+        .median(
+            numeric_only=True
+        )
+    )
+
+    train_dataframe[
+        FEATURE_COLUMNS
+    ] = (
+        train_dataframe[
+            FEATURE_COLUMNS
+        ]
+        .fillna(train_medians)
+        .fillna(0)
+    )
+
+    test_dataframe[
+        FEATURE_COLUMNS
+    ] = (
+        test_dataframe[
+            FEATURE_COLUMNS
+        ]
+        .fillna(train_medians)
+        .fillna(0)
+    )
+
+    return (
+        train_dataframe,
+        test_dataframe,
+    )
+
+
+def chronological_train_validation_split(
+    train_dataframe: pd.DataFrame,
+    validation_ratio: float = 0.20,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    split_index = int(len(train_dataframe) * (1 - validation_ratio))
+
+    if split_index <= 0 or split_index >= len(train_dataframe):
+        return train_dataframe.copy(), train_dataframe.copy()
+
+    fit_dataframe = train_dataframe.iloc[:split_index].copy()
+    validation_dataframe = train_dataframe.iloc[split_index:].copy()
+
+    fit_medians = fit_dataframe[FEATURE_COLUMNS].median(numeric_only=True)
+
+    fit_dataframe[FEATURE_COLUMNS] = (
+        fit_dataframe[FEATURE_COLUMNS]
+        .fillna(fit_medians)
+        .fillna(0)
+    )
+
+    validation_dataframe[FEATURE_COLUMNS] = (
+        validation_dataframe[FEATURE_COLUMNS]
+        .fillna(fit_medians)
+        .fillna(0)
+    )
+
+    return fit_dataframe, validation_dataframe
 
 
 def prepare_model_input(
@@ -425,20 +698,21 @@ def safe_f1_score(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     return float(f1_score(y_true, y_pred, zero_division=0))
 
 
-def safe_average_precision(y_true: np.ndarray, y_score: np.ndarray) -> Optional[float]:
-    if len(np.unique(y_true)) < 2:
-        return None
-
-    return float(average_precision_score(y_true, y_score))
 
 
-def get_labeled_curve_data(dataset_id: int, model_name: str) -> pd.DataFrame:
+
+def get_labeled_curve_data(
+    dataset_id: int,
+    model_name: str,
+) -> pd.DataFrame:
     rows = fetch_all(
         """
         SELECT
+            ar.feature_measurement_id,
             ar.timestamp,
             ar.anomaly_score,
             ar.predicted_anomaly,
+            ar.evaluation_split,
             cm.original_label
         FROM anomaly_results ar
         JOIN feature_measurements fm
@@ -447,10 +721,14 @@ def get_labeled_curve_data(dataset_id: int, model_name: str) -> pd.DataFrame:
             ON fm.clean_measurement_id = cm.id
         WHERE ar.dataset_id = %s
           AND ar.model_name = %s
+          AND ar.evaluation_split = 'test'
           AND cm.original_label IS NOT NULL
         ORDER BY ar.timestamp;
         """,
-        (dataset_id, model_name),
+        (
+            dataset_id,
+            model_name,
+        ),
     )
 
     dataframe = pd.DataFrame(rows)
@@ -458,9 +736,11 @@ def get_labeled_curve_data(dataset_id: int, model_name: str) -> pd.DataFrame:
     if dataframe.empty:
         return dataframe
 
-    dataframe["timestamp"] = pd.to_datetime(dataframe["timestamp"])
+    dataframe["timestamp"] = pd.to_datetime(
+        dataframe["timestamp"]
+    )
 
-    return keep_test_part(dataframe)
+    return dataframe
 
 
 def get_anomaly_scores(dataset_id: int) -> pd.DataFrame:
@@ -486,14 +766,6 @@ def get_anomaly_scores(dataset_id: int) -> pd.DataFrame:
 
     return dataframe
 
-
-def keep_test_part(dataframe: pd.DataFrame) -> pd.DataFrame:
-    split_index = int(len(dataframe) * TRAIN_RATIO)
-
-    if split_index <= 0 or split_index >= len(dataframe):
-        return dataframe
-
-    return dataframe.iloc[split_index:].copy()
 
 
 def format_number(value, decimals: int = 4) -> str:
@@ -639,61 +911,131 @@ def build_interpretation_rows(metrics: pd.DataFrame) -> list[str]:
     if metrics.empty:
         return ["_No model metrics available for interpretation._"]
 
-    kmeans_f1 = get_metric_value(metrics, "K-Means Distance", "f1_score")
-    isolation_f1 = get_metric_value(metrics, "Isolation Forest", "f1_score")
-    hbos_recall = get_metric_value(metrics, "HBOS", "recall_score")
-    hbos_precision = get_metric_value(metrics, "HBOS", "precision_score")
-    ocsvm_recall = get_metric_value(metrics, "One-Class SVM", "recall_score")
-    ocsvm_precision = get_metric_value(metrics, "One-Class SVM", "precision_score")
-    gradient_f1 = get_metric_value(metrics, "Gradient Boosting", "f1_score")
-    dbscan_f1 = get_metric_value(metrics, "DBSCAN", "f1_score")
-    dbscan_recall = get_metric_value(metrics, "DBSCAN", "recall_score")
-
     rows = [
         "Accuracy is shown in the table, but I did not use it as the only criterion. The dataset is imbalanced, because normal measurements are much more common than anomalies. For that reason, precision, recall, F1-score, PR-AUC and the confusion matrix are more useful for comparing the models.",
         "",
+        "Precision–Recall curves are interpreted together with the positive-class baseline. When anomalies are rare, the PR curve can look irregular and can drop quickly as recall increases. This is not a plotting error: it shows that a model can detect more anomalies only by accepting more false-positive alarms, which lowers precision.",
+        "",
     ]
 
-    if kmeans_f1 is not None:
-        rows.append(
-            f"Among the unsupervised models, K-Means Distance had the best balanced result on the labeled test split, with F1-score {kmeans_f1:.3f}. In this run it made the best compromise between finding anomalies and avoiding too many false alarms."
+    unsupervised_model_names = [
+        "Isolation Forest",
+        "Local Outlier Factor",
+        "One-Class SVM",
+        "DBSCAN",
+        "K-Means",
+        "Gaussian Mixture Model",
+        "PCA",
+        "HBOS",
+        "ECOD",
+    ]
+
+    unsupervised_metrics = metrics[
+        metrics["model_name"].isin(unsupervised_model_names)
+    ].copy()
+
+    if not unsupervised_metrics.empty:
+        unsupervised_metrics["f1_score"] = pd.to_numeric(
+            unsupervised_metrics["f1_score"],
+            errors="coerce",
         )
 
-    if isolation_f1 is not None:
+        valid_f1 = unsupervised_metrics.dropna(subset=["f1_score"])
+
+        if not valid_f1.empty:
+            best_row = valid_f1.loc[
+                valid_f1["f1_score"].idxmax()
+            ]
+
+            rows.append(
+                f"Among the unsupervised models, {best_row['model_name']} had the highest F1-score on the labeled test split, with F1-score {best_row['f1_score']:.3f}. This indicates the best balance between precision and recall among the currently available unsupervised results."
+            )
+
+    isolation_f1 = get_metric_value(
+        metrics,
+        "Isolation Forest",
+        "f1_score",
+    )
+
+    isolation_roc = get_metric_value(
+        metrics,
+        "Isolation Forest",
+        "roc_auc",
+    )
+
+    isolation_pr = get_metric_value(
+        metrics,
+        "Isolation Forest",
+        "pr_auc",
+    )
+
+    if (
+        isolation_f1 is not None
+        and isolation_roc is not None
+        and isolation_pr is not None
+    ):
         rows.append(
-            f"Isolation Forest also gave a stable result, with F1-score {isolation_f1:.3f}. This model is useful for the practical version of the application because it can be trained without manually prepared labels."
+            f"Isolation Forest achieved F1-score {isolation_f1:.3f}, ROC-AUC {isolation_roc:.3f} and PR-AUC {isolation_pr:.3f}. It is relevant for the practical version of the application because it can be trained without manually prepared anomaly labels."
         )
+
+    hbos_recall = get_metric_value(
+        metrics,
+        "HBOS",
+        "recall_score",
+    )
+
+    hbos_precision = get_metric_value(
+        metrics,
+        "HBOS",
+        "precision_score",
+    )
 
     if hbos_recall is not None and hbos_precision is not None:
         rows.append(
-            f"HBOS was very sensitive to anomalies, with recall {hbos_recall:.3f}, but its precision was lower ({hbos_precision:.3f}). This means that it detected many true anomalies, but it also produced more false alarms."
+            f"HBOS reached recall {hbos_recall:.3f} and precision {hbos_precision:.3f}. A higher recall means that more true anomalies were detected, while lower precision indicates a larger number of false alarms."
         )
+
+    ocsvm_recall = get_metric_value(
+        metrics,
+        "One-Class SVM",
+        "recall_score",
+    )
+
+    ocsvm_precision = get_metric_value(
+        metrics,
+        "One-Class SVM",
+        "precision_score",
+    )
 
     if ocsvm_recall is not None and ocsvm_precision is not None:
         rows.append(
-            f"One-Class SVM reached recall {ocsvm_recall:.3f}, while precision was {ocsvm_precision:.3f}. This can be useful when missing an anomaly is a bigger problem than having extra false alarms, but it is not ideal if false alarms need to be low."
+            f"One-Class SVM reached recall {ocsvm_recall:.3f} and precision {ocsvm_precision:.3f}. This result shows the trade-off between detecting more anomalies and producing additional false positive predictions."
         )
 
-    if gradient_f1 is not None and gradient_f1 >= 0.999:
-        rows.extend([
+    rows.extend(
+        [
             "",
-            "### Note on very high supervised results",
+            "### DBSCAN baseline note",
             "",
-            "Several supervised models achieved very high results on the labeled mock dataset. I do not treat this as proof that the same results would be obtained on real radiation data. The mock dataset has clear anomaly labels and the anomalies are easier to separate than they would usually be in practice.",
-            "",
-            "For that reason, the supervised part is used as a controlled experiment. It shows that the feature set and the evaluation pipeline work correctly when labels are available. For real datasets without verified labels, the application uses unsupervised detection and does not report accuracy, precision or recall.",
-        ])
+            "DBSCAN was kept as a clustering-based baseline, not as the main model for the future real-time version. Standard DBSCAN does not train a reusable classifier with a normal `predict` method for new measurements. It groups the currently loaded points and marks low-density points as noise, so the result depends strongly on the selected dataset and parameters.",
+        ]
+    )
 
-    rows.extend([
-        "",
-        "### DBSCAN baseline note",
-        "",
-        "DBSCAN was kept as a clustering-based baseline, not as the main model for the future real-time version. Standard DBSCAN does not train a reusable classifier with a normal `predict` method for new measurements. It groups the currently loaded points and marks low-density points as noise, so the result depends strongly on the selected dataset and parameters.",
-    ])
+    dbscan_f1 = get_metric_value(
+        metrics,
+        "DBSCAN",
+        "f1_score",
+    )
+
+    dbscan_recall = get_metric_value(
+        metrics,
+        "DBSCAN",
+        "recall_score",
+    )
 
     if dbscan_f1 is not None and dbscan_recall is not None:
         rows.append(
-            f"In this run, DBSCAN achieved F1-score {dbscan_f1:.3f} and recall {dbscan_recall:.3f}. It can detect a part of the anomalous region, but it is less flexible for later real-time use than models that can be trained once and then applied to new records."
+            f"In this run, DBSCAN achieved F1-score {dbscan_f1:.3f} and recall {dbscan_recall:.3f}. It is useful as a clustering baseline, but it is less suitable for direct application to future streaming measurements than models with a standard train-and-predict workflow."
         )
 
     return rows
@@ -762,12 +1104,54 @@ def format_metrics_for_report(metrics: pd.DataFrame) -> pd.DataFrame:
 
 def save_plot(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    plt.tight_layout()
-    plt.savefig(path, dpi=160, bbox_inches="tight")
+    plt.savefig(path, dpi=300, bbox_inches="tight", facecolor=FIGURE_BACKGROUND)
     plt.close()
 
 
-def plot_metric_bar(metrics: pd.DataFrame, metric: str, title: str, ylabel: str, path: Path) -> Optional[Path]:
+def clear_figures_directory() -> None:
+    FIGURES_DIR.mkdir(parents=True, exist_ok=True)
+
+    image_extensions = {".png", ".jpg", ".jpeg", ".svg", ".pdf"}
+
+    for item in FIGURES_DIR.iterdir():
+        if item.is_file() and item.suffix.lower() in image_extensions:
+            item.unlink()
+
+
+def add_bar_value_labels(axis, bars, decimals: int = 3, suffix: str = "") -> None:
+    for bar in bars:
+        value = bar.get_width() if bar.get_width() > 0 else bar.get_height()
+
+        if not np.isfinite(value):
+            continue
+
+        if bar.get_width() > bar.get_height():
+            axis.text(
+                bar.get_width(),
+                bar.get_y() + bar.get_height() / 2,
+                f"  {value:.{decimals}f}{suffix}",
+                va="center",
+                ha="left",
+                fontsize=9,
+            )
+        else:
+            axis.text(
+                bar.get_x() + bar.get_width() / 2,
+                bar.get_height(),
+                f"{value:.{decimals}f}{suffix}",
+                va="bottom",
+                ha="center",
+                fontsize=8,
+            )
+
+
+def plot_metric_bar(
+    metrics: pd.DataFrame,
+    metric: str,
+    title: str,
+    ylabel: str,
+    path: Path,
+) -> Optional[Path]:
     if metrics.empty or metric not in metrics.columns:
         return None
 
@@ -778,14 +1162,74 @@ def plot_metric_bar(metrics: pd.DataFrame, metric: str, title: str, ylabel: str,
     if dataframe.empty:
         return None
 
-    plt.figure(figsize=(12, 6))
-    plt.bar(dataframe["model_name"], dataframe[metric])
-    plt.title(title)
-    plt.ylabel(ylabel)
-    plt.xticks(rotation=35, ha="right")
-    plt.grid(axis="y", alpha=0.25)
-    save_plot(path)
+    # timing charts are ordered from fastest to slowest
+    dataframe = dataframe.sort_values(metric, ascending=True).reset_index(drop=True)
+    colors = [get_model_color(model_name) for model_name in dataframe["model_name"]]
+    figure_height = max(5.4, 0.40 * len(dataframe) + 1.9)
+    figure, axis = plt.subplots(
+        figsize=(10.8, figure_height),
+        constrained_layout=True,
+    )
 
+    bars = axis.barh(
+        dataframe["model_name"],
+        dataframe[metric],
+        color=colors,
+        edgecolor="white",
+        linewidth=0.7,
+        height=0.48,
+    )
+
+    axis.set_title(title, pad=13, fontsize=14, fontweight="semibold")
+    axis.set_ylabel("")
+    axis.tick_params(axis="y", labelsize=9.2)
+    axis.invert_yaxis()
+    style_axes(axis, grid_axis="x")
+
+    positive_values = dataframe.loc[dataframe[metric] > 0, metric]
+
+    if metric in {"training_time_seconds", "prediction_time_seconds"} and not positive_values.empty:
+        axis.set_xscale("log")
+        axis.set_xlabel(f"{ylabel} (log scale)")
+
+        min_positive = float(positive_values.min())
+        max_positive = float(positive_values.max())
+        axis.set_xlim(min_positive / 1.8, max_positive * 1.75)
+        axis.grid(axis="x", which="major", linestyle="--", linewidth=0.65, alpha=0.55)
+        axis.grid(axis="x", which="minor", linestyle=":", linewidth=0.45, alpha=0.22)
+
+        for bar, value in zip(bars, dataframe[metric]):
+            if value <= 0:
+                continue
+
+            axis.text(
+                value * 1.08,
+                bar.get_y() + bar.get_height() / 2,
+                f"{value:.4f}",
+                va="center",
+                ha="left",
+                fontsize=8.6,
+                color=TEXT_COLOR,
+            )
+    else:
+        axis.set_xlabel(ylabel)
+        max_value = float(dataframe[metric].max())
+
+        if max_value > 0:
+            axis.set_xlim(0, max_value * 1.15)
+
+        for bar, value in zip(bars, dataframe[metric]):
+            axis.text(
+                value + max_value * 0.012 if max_value > 0 else value,
+                bar.get_y() + bar.get_height() / 2,
+                f"{value:.4f}",
+                va="center",
+                ha="left",
+                fontsize=8.6,
+                color=TEXT_COLOR,
+            )
+
+    save_plot(path)
     return path
 
 
@@ -802,11 +1246,11 @@ def prepare_percent_value(series: pd.Series) -> pd.Series:
 
 
 def plot_multi_metric_bar(
-        metrics: pd.DataFrame,
-        metric_names: list[str],
-        title: str,
-        path: Path,
-        as_percent: bool = False,
+    metrics: pd.DataFrame,
+    metric_names: list[str],
+    title: str,
+    path: Path,
+    as_percent: bool = False,
 ) -> Optional[Path]:
     if metrics.empty:
         return None
@@ -820,37 +1264,73 @@ def plot_multi_metric_bar(
             dataframe[metric] = pd.to_numeric(dataframe[metric], errors="coerce")
 
     dataframe = dataframe.dropna(subset=metric_names, how="all")
+    dataframe = order_model_dataframe(dataframe)
 
     if dataframe.empty:
         return None
 
-    x = np.arange(len(dataframe))
-    width = 0.8 / len(metric_names)
+    metric_count = len(metric_names)
+    columns_count = 2 if metric_count > 1 else 1
+    rows_count = int(np.ceil(metric_count / columns_count))
 
-    plt.figure(figsize=(14, 6))
+    figure, axes = plt.subplots(
+        rows_count,
+        columns_count,
+        figsize=(18, 5.7 * rows_count),
+        squeeze=False,
+        constrained_layout=True,
+    )
+    axes = axes.reshape(-1)
+
+    colors = [get_model_color(name) for name in dataframe["model_name"]]
+    x = np.arange(len(dataframe))
 
     for index, metric in enumerate(metric_names):
-        offset = (index - (len(metric_names) - 1) / 2) * width
+        axis = axes[index]
         label = METRIC_LABELS.get(metric, metric)
-        plt.bar(x + offset, dataframe[metric], width=width, label=label)
 
-    plt.title(title)
-    plt.ylabel("score (%)" if as_percent else "score")
-    plt.xticks(x, dataframe["model_name"], rotation=35, ha="right")
-    plt.legend()
-    plt.grid(axis="y", alpha=0.25)
+        axis.bar(
+            x,
+            dataframe[metric],
+            color=colors,
+            edgecolor="white",
+            linewidth=0.7,
+            alpha=0.94,
+        )
 
-    if as_percent:
-        plt.ylim(0, 105)
+        axis.set_title(label, pad=10, fontsize=13, fontweight="semibold")
+        axis.set_ylabel("Score (%)" if as_percent else "Score")
+        axis.set_xticks(x)
+        axis.set_xticklabels(
+            dataframe["model_name"],
+            rotation=30,
+            ha="right",
+            fontsize=8.4,
+        )
+        style_axes(axis, grid_axis="y")
 
+        if as_percent:
+            axis.set_ylim(0, 105)
+        else:
+            axis.set_ylim(bottom=0)
+
+    for empty_axis in axes[metric_count:]:
+        empty_axis.axis("off")
+
+    figure.suptitle(title, fontsize=17, fontweight="semibold")
     save_plot(path)
-
     return path
 
 
-def plot_confusion_matrix_group(dataframe: pd.DataFrame, path: Path, title: str) -> Optional[Path]:
+def plot_confusion_matrix_group(
+    dataframe: pd.DataFrame,
+    path: Path,
+    title: str,
+) -> Optional[Path]:
     if dataframe.empty:
         return None
+
+    dataframe = order_model_dataframe(dataframe)
 
     model_count = len(dataframe)
     columns_count = 3 if model_count > 2 else model_count
@@ -859,14 +1339,22 @@ def plot_confusion_matrix_group(dataframe: pd.DataFrame, path: Path, title: str)
     figure, axes = plt.subplots(
         rows_count,
         columns_count,
-        figsize=(columns_count * 4.4, rows_count * 3.6),
+        figsize=(columns_count * 4.9, rows_count * 4.25),
         squeeze=False,
+        constrained_layout=True,
     )
     axes = axes.reshape(-1)
 
+    last_image = None
+
     for axis_index, (_, row) in enumerate(dataframe.iterrows()):
         axis = axes[axis_index]
-        matrix = np.array([[row["tn"], row["fp"]], [row["fn"], row["tp"]]], dtype=float)
+
+        matrix = np.array(
+            [[row["tn"], row["fp"]], [row["fn"], row["tp"]]],
+            dtype=float,
+        )
+
         row_sums = matrix.sum(axis=1, keepdims=True)
         normalized_matrix = np.divide(
             matrix,
@@ -875,35 +1363,61 @@ def plot_confusion_matrix_group(dataframe: pd.DataFrame, path: Path, title: str)
             where=row_sums != 0,
         )
 
-        image = axis.imshow(normalized_matrix, vmin=0, vmax=1)
-        axis.set_title(row["model_name"], fontsize=10)
+        last_image = axis.imshow(
+            normalized_matrix,
+            cmap=CONFUSION_CMAP,
+            vmin=0,
+            vmax=1,
+            aspect="equal",
+        )
+
+        axis.set_title(
+            row["model_name"],
+            color=TEXT_COLOR,
+            pad=10,
+            fontsize=12.5,
+            fontweight="semibold",
+        )
         axis.set_xticks([0, 1])
         axis.set_yticks([0, 1])
-        axis.set_xticklabels(["pred 0", "pred 1"])
-        axis.set_yticklabels(["true 0", "true 1"])
+        axis.set_xticklabels(["Normal", "Anomaly"])
+        axis.set_yticklabels(["Normal", "Anomaly"])
+        axis.set_xlabel("Predicted class")
+        axis.set_ylabel("True class")
+        axis.tick_params(axis="both", labelsize=9.2)
 
         for i in range(2):
             for j in range(2):
                 count_value = int(matrix[i, j])
                 percent_value = normalized_matrix[i, j] * 100
+                text_color = "white" if normalized_matrix[i, j] >= 0.55 else TEXT_COLOR
+
                 axis.text(
                     j,
                     i,
-                    f"{count_value}\n({percent_value:.1f}%)",
+                    f"{count_value}\n{percent_value:.1f}%",
                     ha="center",
                     va="center",
-                    fontsize=9,
+                    fontsize=10.5,
+                    fontweight="semibold",
+                    color=text_color,
                 )
-
-        figure.colorbar(image, ax=axis, fraction=0.046, pad=0.04)
 
     for empty_axis in axes[model_count:]:
         empty_axis.axis("off")
 
-    figure.suptitle(title, y=1.02)
-    figure.tight_layout()
-    save_plot(path)
+    if last_image is not None:
+        colorbar = figure.colorbar(
+            last_image,
+            ax=[axis for axis in axes[:model_count]],
+            fraction=0.025,
+            pad=0.02,
+        )
+        colorbar.set_label("Row-normalized proportion")
+        colorbar.ax.tick_params(labelsize=8.5)
 
+    figure.suptitle(title, fontsize=17, fontweight="semibold")
+    save_plot(path)
     return path
 
 
@@ -947,12 +1461,17 @@ def plot_confusion_matrices(metrics: pd.DataFrame) -> list[Path]:
     return paths
 
 
-def plot_roc_and_pr_curves(dataset_id: int, metrics: pd.DataFrame) -> tuple[Optional[Path], Optional[Path]]:
-    # curves are created only for models with labeled test data
+def plot_roc_and_pr_curves(
+    dataset_id: int,
+    metrics: pd.DataFrame,
+) -> tuple[Optional[Path], Optional[Path]]:
     if metrics.empty:
         return None, None
 
-    labeled_models = metrics[metrics["evaluation_mode"].isin(["labeled", "supervised"])]
+    labeled_models = metrics[
+        metrics["evaluation_mode"].isin(["labeled", "supervised"])
+    ].copy()
+    labeled_models = order_model_dataframe(labeled_models)
 
     if labeled_models.empty:
         return None, None
@@ -960,308 +1479,732 @@ def plot_roc_and_pr_curves(dataset_id: int, metrics: pd.DataFrame) -> tuple[Opti
     roc_path = FIGURES_DIR / "roc_curves.png"
     pr_path = FIGURES_DIR / "precision_recall_curves.png"
 
+    model_groups = [
+        (
+            "Unsupervised anomaly detection models",
+            labeled_models[labeled_models["evaluation_mode"] == "labeled"],
+        ),
+        (
+            "Supervised classification models",
+            labeled_models[labeled_models["evaluation_mode"] == "supervised"],
+        ),
+    ]
+
+    roc_figure, roc_axes = plt.subplots(
+        1,
+        2,
+        figsize=(19, 7.8),
+        squeeze=False,
+        constrained_layout=True,
+    )
+    roc_axes = roc_axes.reshape(-1)
     has_roc = False
-    has_pr = False
 
-    plt.figure(figsize=(12, 7))
+    for axis, (group_title, group_dataframe) in zip(roc_axes, model_groups):
+        group_has_curve = False
 
-    for _, row in labeled_models.iterrows():
-        curve_data = get_labeled_curve_data(dataset_id, row["model_name"])
+        for _, row in group_dataframe.iterrows():
+            model_name = row["model_name"]
+            curve_data = get_labeled_curve_data(dataset_id, model_name)
 
-        if curve_data.empty or curve_data["original_label"].nunique() < 2:
-            continue
+            if curve_data.empty or curve_data["original_label"].nunique() < 2:
+                continue
 
-        y_true = curve_data["original_label"].astype(int).to_numpy()
-        y_score = pd.to_numeric(curve_data["anomaly_score"], errors="coerce").to_numpy()
-        valid_mask = ~np.isnan(y_score)
+            y_true = curve_data["original_label"].astype(int).to_numpy()
+            y_score = pd.to_numeric(curve_data["anomaly_score"], errors="coerce").to_numpy()
 
-        y_true = y_true[valid_mask]
-        y_score = y_score[valid_mask]
+            valid_mask = ~np.isnan(y_score)
+            y_true = y_true[valid_mask]
+            y_score = y_score[valid_mask]
 
-        if len(y_true) == 0 or len(np.unique(y_true)) < 2:
-            continue
+            if len(y_true) == 0 or len(np.unique(y_true)) < 2:
+                continue
 
-        fpr, tpr, _ = roc_curve(y_true, y_score)
-        plt.plot(fpr, tpr, label=f"{row['model_name']} ({format_number(row.get('roc_auc'), 3)})")
-        has_roc = True
+            fpr, tpr, _ = roc_curve(y_true, y_score)
 
-    plt.plot([0, 1], [0, 1], linestyle="--", linewidth=1, label="baseline")
-    plt.title("ROC curves on chronological test split")
-    plt.xlabel("False Positive Rate")
-    plt.ylabel("True Positive Rate")
-    plt.legend(fontsize=8, loc="center left", bbox_to_anchor=(1.02, 0.5))
-    plt.grid(alpha=0.25)
+            axis.plot(
+                fpr,
+                tpr,
+                color=get_model_color(model_name),
+                linewidth=2.2,
+                label=f"{model_name} (AUC {format_number(row.get('roc_auc'), 3)})",
+            )
+
+            group_has_curve = True
+            has_roc = True
+
+        axis.plot(
+            [0, 1],
+            [0, 1],
+            linestyle="--",
+            linewidth=1.3,
+            color=MUTED_TEXT_COLOR,
+            label="Chance level (AUC 0.500)",
+        )
+        axis.set_title(group_title, pad=10, fontsize=13, fontweight="semibold")
+        axis.set_xlabel("False Positive Rate")
+        axis.set_ylabel("True Positive Rate")
+        axis.set_xlim(0, 1)
+        axis.set_ylim(0, 1.02)
+        style_axes(axis, grid_axis="both")
+
+        if group_has_curve:
+            style_legend(axis, location="lower right")
+
+    roc_figure.suptitle(
+        "Receiver Operating Characteristic (ROC) curves — chronological test split",
+        fontsize=17,
+        fontweight="semibold",
+    )
 
     if has_roc:
-        save_plot(roc_path)
+        roc_figure.savefig(
+            roc_path,
+            dpi=300,
+            bbox_inches="tight",
+            facecolor=FIGURE_BACKGROUND,
+        )
+        plt.close(roc_figure)
     else:
-        plt.close()
+        plt.close(roc_figure)
         roc_path = None
 
-    plt.figure(figsize=(12, 7))
+    pr_figure, pr_axes = plt.subplots(
+        1,
+        2,
+        figsize=(19, 7.8),
+        squeeze=False,
+        constrained_layout=True,
+    )
+    pr_axes = pr_axes.reshape(-1)
+    has_pr = False
 
-    for _, row in labeled_models.iterrows():
-        curve_data = get_labeled_curve_data(dataset_id, row["model_name"])
+    for axis, (group_title, group_dataframe) in zip(pr_axes, model_groups):
+        group_has_curve = False
+        prevalence_value = None
 
-        if curve_data.empty or curve_data["original_label"].nunique() < 2:
-            continue
+        for _, row in group_dataframe.iterrows():
+            model_name = row["model_name"]
+            curve_data = get_labeled_curve_data(dataset_id, model_name)
 
-        y_true = curve_data["original_label"].astype(int).to_numpy()
-        y_score = pd.to_numeric(curve_data["anomaly_score"], errors="coerce").to_numpy()
-        valid_mask = ~np.isnan(y_score)
+            if curve_data.empty or curve_data["original_label"].nunique() < 2:
+                continue
 
-        y_true = y_true[valid_mask]
-        y_score = y_score[valid_mask]
+            y_true = curve_data["original_label"].astype(int).to_numpy()
+            y_score = pd.to_numeric(curve_data["anomaly_score"], errors="coerce").to_numpy()
 
-        if len(y_true) == 0 or len(np.unique(y_true)) < 2:
-            continue
+            valid_mask = ~np.isnan(y_score)
+            y_true = y_true[valid_mask]
+            y_score = y_score[valid_mask]
 
-        precision, recall, _ = precision_recall_curve(y_true, y_score)
-        plt.plot(recall, precision, label=f"{row['model_name']} ({format_number(row.get('pr_auc'), 3)})")
-        has_pr = True
+            if len(y_true) == 0 or len(np.unique(y_true)) < 2:
+                continue
 
-    plt.title("Precision-Recall curves on chronological test split")
-    plt.xlabel("Recall")
-    plt.ylabel("Precision")
-    plt.legend(fontsize=8, loc="center left", bbox_to_anchor=(1.02, 0.5))
-    plt.grid(alpha=0.25)
+            precision, recall, _ = precision_recall_curve(y_true, y_score)
+
+            axis.plot(
+                recall,
+                precision,
+                color=get_model_color(model_name),
+                linewidth=2.2,
+                label=f"{model_name} (AUC {format_number(row.get('pr_auc'), 3)})",
+            )
+
+            if prevalence_value is None:
+                prevalence_value = float(np.mean(y_true))
+
+            group_has_curve = True
+            has_pr = True
+
+        if prevalence_value is not None:
+            axis.axhline(
+                prevalence_value,
+                linestyle="--",
+                linewidth=1.3,
+                color=MUTED_TEXT_COLOR,
+                label=f"Positive-class baseline ({prevalence_value:.3f})",
+            )
+
+        axis.set_title(group_title, pad=10, fontsize=13, fontweight="semibold")
+        axis.set_xlabel("Recall")
+        axis.set_ylabel("Precision")
+        axis.set_xlim(0, 1)
+        axis.set_ylim(0, 1.02)
+        style_axes(axis, grid_axis="both")
+
+        if group_has_curve:
+            style_legend(axis, location="upper right")
+
+    pr_figure.suptitle(
+        "Precision–Recall curves — chronological test split",
+        fontsize=17,
+        fontweight="semibold",
+    )
 
     if has_pr:
-        save_plot(pr_path)
+        pr_figure.savefig(
+            pr_path,
+            dpi=300,
+            bbox_inches="tight",
+            facecolor=FIGURE_BACKGROUND,
+        )
+        plt.close(pr_figure)
     else:
-        plt.close()
+        plt.close(pr_figure)
         pr_path = None
 
     return roc_path, pr_path
 
 
-def plot_anomaly_score_boxplot(dataset_id: int, path: Path) -> Optional[Path]:
+def plot_anomaly_score_boxplot(
+    dataset_id: int,
+    path: Path,
+) -> Optional[Path]:
     scores = get_anomaly_scores(dataset_id)
 
     if scores.empty:
         return None
 
-    model_names = list(scores["model_name"].dropna().unique())
-    data = []
-    labels = []
+    available_models = set(scores["model_name"].dropna().unique())
 
-    for model_name in model_names:
-        values = scores.loc[scores["model_name"] == model_name, "anomaly_score"].dropna().astype(float)
+    unsupervised_names = [
+        name for name in MODEL_ORDER[:9]
+        if name in available_models
+    ]
+    supervised_names = [
+        name for name in MODEL_ORDER[9:]
+        if name in available_models
+    ]
 
-        if values.empty:
-            continue
+    def collect_group(model_names: list[str]):
+        labels = []
+        normal_data = []
+        anomaly_data = []
 
-        min_value = values.min()
-        max_value = values.max()
+        for model_name in model_names:
+            curve_data = get_labeled_curve_data(dataset_id, model_name)
 
-        if max_value == min_value:
-            normalized_values = values * 0
-        else:
-            normalized_values = (values - min_value) / (max_value - min_value)
+            if curve_data.empty:
+                continue
 
-        data.append(normalized_values.to_numpy())
-        labels.append(model_name)
+            curve_data = curve_data.copy()
+            curve_data["anomaly_score"] = pd.to_numeric(
+                curve_data["anomaly_score"],
+                errors="coerce",
+            )
+            curve_data = curve_data.dropna(
+                subset=["anomaly_score", "original_label"]
+            )
 
-    if not data:
+            if curve_data.empty:
+                continue
+
+            values = curve_data["anomaly_score"].astype(float)
+            min_value = float(values.min())
+            max_value = float(values.max())
+
+            if max_value == min_value:
+                curve_data["normalized_score"] = 0.0
+            else:
+                curve_data["normalized_score"] = (
+                    (values - min_value)
+                    / (max_value - min_value)
+                )
+
+            normal_values = curve_data.loc[
+                curve_data["original_label"].astype(int) == 0,
+                "normalized_score",
+            ].to_numpy()
+
+            anomaly_values = curve_data.loc[
+                curve_data["original_label"].astype(int) == 1,
+                "normalized_score",
+            ].to_numpy()
+
+            if len(normal_values) == 0 or len(anomaly_values) == 0:
+                continue
+
+            labels.append(model_name)
+            normal_data.append(normal_values)
+            anomaly_data.append(anomaly_values)
+
+        return labels, normal_data, anomaly_data
+
+    unsup_labels, unsup_normal, unsup_anomaly = collect_group(unsupervised_names)
+    sup_labels, sup_normal, sup_anomaly = collect_group(supervised_names)
+
+    if not unsup_labels and not sup_labels:
         return None
 
-    plt.figure(figsize=(13, 6))
-    try:
-        plt.boxplot(data, tick_labels=labels, showfliers=False)
-    except TypeError:
-        plt.boxplot(data, labels=labels, showfliers=False)
-    plt.title("Normalized anomaly score distribution by model")
-    plt.ylabel("normalized anomaly score")
-    plt.xticks(rotation=35, ha="right")
-    plt.grid(axis="y", alpha=0.25)
-    save_plot(path)
+    figure, axes = plt.subplots(
+        2,
+        2,
+        figsize=(20, 12),
+        sharey=True,
+        constrained_layout=True,
+    )
 
+    plot_specs = [
+        (axes[0, 0], unsup_labels, unsup_normal, "Unsupervised models — normal samples"),
+        (axes[0, 1], unsup_labels, unsup_anomaly, "Unsupervised models — known anomalies"),
+        (axes[1, 0], sup_labels, sup_normal, "Supervised models — normal samples"),
+        (axes[1, 1], sup_labels, sup_anomaly, "Supervised models — known anomalies"),
+    ]
+
+    for axis, labels, plot_data, title in plot_specs:
+        if not labels:
+            axis.axis("off")
+            continue
+
+        result = axis.boxplot(
+            plot_data,
+            tick_labels=labels,
+            patch_artist=True,
+            showfliers=False,
+            widths=0.55,
+            medianprops={"color": "#222222", "linewidth": 1.5},
+            whiskerprops={"color": "#555555", "linewidth": 1.0},
+            capprops={"color": "#555555", "linewidth": 1.0},
+        )
+
+        for patch, model_name in zip(result["boxes"], labels):
+            patch.set_facecolor(get_model_color(model_name))
+            patch.set_alpha(0.70)
+            patch.set_edgecolor("#333333")
+            patch.set_linewidth(0.8)
+
+        axis.set_title(title, pad=10)
+        axis.set_ylim(0, 1.02)
+        axis.grid(axis="y")
+        axis.set_axisbelow(True)
+        axis.tick_params(axis="x", rotation=32)
+
+    axes[0, 0].set_ylabel("Normalized anomaly score")
+    axes[1, 0].set_ylabel("Normalized anomaly score")
+
+    figure.suptitle(
+        "Distribution of normalized anomaly scores — chronological test split"
+    )
+
+    save_plot(path)
     return path
 
 
-def plot_anomaly_score_swarm(dataset_id: int, path: Path) -> Optional[Path]:
-    scores = get_anomaly_scores(dataset_id)
+def plot_feature_scaling_diagnostics(
+    dataset_id: int,
+    path: Path,
+) -> Optional[Path]:
+    dataframe = get_labeled_feature_dataframe(dataset_id)
 
-    if scores.empty:
+    if dataframe.empty:
         return None
 
-    model_names = list(scores["model_name"].dropna().unique())
+    train_dataframe, _ = chronological_train_test_split(dataframe)
 
-    if not model_names:
+    if train_dataframe.empty:
         return None
 
-    plt.figure(figsize=(13, 6))
-    rng = np.random.default_rng(42)
+    x_train = train_dataframe[FEATURE_COLUMNS].copy()
 
-    for index, model_name in enumerate(model_names, start=1):
-        values = scores.loc[scores["model_name"] == model_name, "anomaly_score"].dropna().astype(float)
+    for column in FEATURE_COLUMNS:
+        x_train[column] = pd.to_numeric(x_train[column], errors="coerce")
 
-        if values.empty:
-            continue
+    medians = x_train.median(numeric_only=True)
+    x_train = x_train.fillna(medians).fillna(0)
 
-        if len(values) > 250:
-            values = values.sample(n=250, random_state=42)
+    scaler = StandardScaler()
+    scaled_values = scaler.fit_transform(x_train)
 
-        min_value = values.min()
-        max_value = values.max()
+    figure, axes = plt.subplots(
+        1,
+        2,
+        figsize=(18, 7.2),
+        constrained_layout=True,
+    )
 
-        if max_value == min_value:
-            normalized_values = values * 0
-        else:
-            normalized_values = (values - min_value) / (max_value - min_value)
+    boxplot_kwargs = {
+        "tick_labels": FEATURE_COLUMNS,
+        "patch_artist": True,
+        "showfliers": False,
+        "widths": 0.34,
+        "medianprops": {"color": "#111827", "linewidth": 1.6},
+        "whiskerprops": {"color": "#6B7280", "linewidth": 0.9},
+        "capprops": {"color": "#6B7280", "linewidth": 0.9},
+    }
 
-        x_values = rng.normal(index, 0.035, size=len(normalized_values))
-        plt.scatter(x_values, normalized_values, s=7, alpha=0.28)
+    raw_values = [
+        x_train[column].to_numpy()
+        for column in FEATURE_COLUMNS
+    ]
 
-    plt.title("Sampled normalized anomaly scores by model")
-    plt.ylabel("normalized anomaly score")
-    plt.xticks(range(1, len(model_names) + 1), model_names, rotation=35, ha="right")
-    plt.grid(axis="y", alpha=0.25)
+    scaled_feature_values = [
+        scaled_values[:, index]
+        for index in range(len(FEATURE_COLUMNS))
+    ]
+
+    raw_result = axes[0].boxplot(
+        raw_values,
+        **boxplot_kwargs,
+    )
+
+    scaled_result = axes[1].boxplot(
+        scaled_feature_values,
+        **boxplot_kwargs,
+    )
+
+    apply_boxplot_style(raw_result, FEATURE_COLORS)
+    apply_boxplot_style(scaled_result, FEATURE_COLORS)
+
+    for axis in axes:
+        axis.tick_params(
+            axis="x",
+            rotation=28,
+            labelsize=8.7,
+        )
+        style_axes(axis, grid_axis="y")
+
+    axes[0].set_title(
+        "Before StandardScaler",
+        pad=10,
+        fontsize=13,
+        fontweight="semibold",
+    )
+    axes[0].set_ylabel("Feature value (symmetric log scale)")
+
+    # symlog keeps small-value features visible without deleting large-value features
+    axes[0].set_yscale("symlog", linthresh=1.0)
+
+    axes[1].set_title(
+        "After StandardScaler",
+        pad=10,
+        fontsize=13,
+        fontweight="semibold",
+    )
+    axes[1].set_ylabel("Standardized value")
+
+    # most standardized values should be visually comparable around zero
+    scaled_limit = np.nanpercentile(
+        np.abs(scaled_values),
+        99,
+    )
+
+    if np.isfinite(scaled_limit) and scaled_limit > 0:
+        axes[1].set_ylim(
+            -scaled_limit * 1.15,
+            scaled_limit * 1.15,
+        )
+
+    figure.suptitle(
+        "Feature distributions before and after scaling — training split only",
+        fontsize=17,
+        fontweight="semibold",
+    )
+
     save_plot(path)
-
     return path
 
 
-def plot_supervised_learning_curves(dataset_id: int, path: Path) -> Optional[Path]:
+def plot_supervised_learning_curves(
+    dataset_id: int,
+    path: Path,
+) -> Optional[Path]:
     dataframe = get_labeled_feature_dataframe(dataset_id)
 
     if dataframe.empty or dataframe["original_label"].nunique() < 2:
         return None
 
-    train_dataframe, test_dataframe = chronological_train_test_split(dataframe)
+    outer_train, _ = chronological_train_test_split(dataframe)
+    fit_dataframe, validation_dataframe = chronological_train_validation_split(
+        outer_train
+    )
 
-    if train_dataframe.empty or test_dataframe.empty or test_dataframe["original_label"].nunique() < 2:
+    if (
+        fit_dataframe.empty
+        or validation_dataframe.empty
+        or fit_dataframe["original_label"].nunique() < 2
+        or validation_dataframe["original_label"].nunique() < 2
+    ):
         return None
 
     train_fractions = [0.20, 0.35, 0.50, 0.65, 0.80, 1.00]
     has_curve = False
 
-    plt.figure(figsize=(12, 7))
+    figure, axis = plt.subplots(figsize=(16, 8), constrained_layout=True)
 
-    for model_name, model_config in SUPERVISED_MODEL_BUILDERS.items():
+    for model_config in SUPERVISED_MODELS:
+        model_name = model_config["name"]
         x_points = []
-        y_points = []
+        validation_points = []
 
         for fraction in train_fractions:
-            subset_size = max(10, int(len(train_dataframe) * fraction))
-            subset = train_dataframe.iloc[:subset_size].copy()
+            subset_size = max(10, int(len(fit_dataframe) * fraction))
+            subset = fit_dataframe.iloc[:subset_size].copy()
 
             if subset["original_label"].nunique() < 2:
                 continue
 
-            x_train, x_test = prepare_model_input(model_config, subset, test_dataframe)
-            y_train = subset["original_label"].astype(int).to_numpy()
-            y_test = test_dataframe["original_label"].astype(int).to_numpy()
+            x_train, x_validation = prepare_model_input(
+                model_config,
+                subset,
+                validation_dataframe,
+            )
 
-            model = model_config["builder"]()
+            y_train = subset["original_label"].astype(int).to_numpy()
+            y_validation = (
+                validation_dataframe["original_label"]
+                .astype(int)
+                .to_numpy()
+            )
+
+            model = model_config["build_model"]()
             model.fit(x_train, y_train)
-            predictions = model.predict(x_test).astype(int)
+            predictions = model.predict(x_validation).astype(int)
 
             x_points.append(subset_size)
-            y_points.append(safe_f1_score(y_test, predictions))
+            validation_points.append(
+                safe_f1_score(y_validation, predictions)
+            )
 
-        if x_points and y_points:
-            plt.plot(x_points, y_points, marker="o", label=model_name)
+        if x_points:
+            axis.plot(
+                x_points,
+                validation_points,
+                marker="o",
+                markersize=6,
+                linewidth=2.3,
+                color=get_model_color(model_name),
+                label=model_name,
+            )
             has_curve = True
 
     if not has_curve:
-        plt.close()
+        plt.close(figure)
         return None
 
-    plt.title("F1-score by training set size for supervised models")
-    plt.xlabel("training examples")
-    plt.ylabel("F1-score")
-    plt.ylim(0, 1.05)
-    plt.legend(fontsize=8, loc="lower right")
-    plt.grid(alpha=0.25)
-    save_plot(path)
+    axis.set_title("Validation F1-score as a function of training-set size", pad=12)
+    axis.set_xlabel("Number of training examples")
+    axis.set_ylabel("Validation F1-score")
+    axis.set_ylim(0, 1.05)
+    axis.grid()
+    axis.set_axisbelow(True)
+    axis.legend(
+        loc="upper center",
+        bbox_to_anchor=(0.5, 1.02),
+        ncol=3,
+        frameon=True,
+        facecolor="white",
+        framealpha=0.95,
+    )
 
+    save_plot(path)
     return path
 
 
-def plot_gradient_boosting_staged_performance(dataset_id: int, path: Path) -> Optional[Path]:
+def plot_gradient_boosting_staged_performance(
+    dataset_id: int,
+    path: Path,
+) -> Optional[Path]:
     dataframe = get_labeled_feature_dataframe(dataset_id)
 
     if dataframe.empty or dataframe["original_label"].nunique() < 2:
         return None
 
-    train_dataframe, test_dataframe = chronological_train_test_split(dataframe)
+    outer_train, _ = chronological_train_test_split(dataframe)
+    fit_dataframe, validation_dataframe = chronological_train_validation_split(
+        outer_train
+    )
 
-    if train_dataframe.empty or test_dataframe.empty or test_dataframe["original_label"].nunique() < 2:
+    if (
+        fit_dataframe.empty
+        or validation_dataframe.empty
+        or fit_dataframe["original_label"].nunique() < 2
+        or validation_dataframe["original_label"].nunique() < 2
+    ):
         return None
 
-    model_config = SUPERVISED_MODEL_BUILDERS["Gradient Boosting"]
-    x_train, x_test = prepare_model_input(model_config, train_dataframe, test_dataframe)
-    y_train = train_dataframe["original_label"].astype(int).to_numpy()
-    y_test = test_dataframe["original_label"].astype(int).to_numpy()
+    model_config = next(
+        item for item in SUPERVISED_MODELS
+        if item["name"] == GRADIENT_BOOSTING_NAME
+    )
 
-    if len(np.unique(y_train)) < 2 or len(np.unique(y_test)) < 2:
-        return None
+    x_train, x_validation = prepare_model_input(
+        model_config,
+        fit_dataframe,
+        validation_dataframe,
+    )
 
-    model = model_config["builder"]()
+    y_train = fit_dataframe["original_label"].astype(int).to_numpy()
+    y_validation = (
+        validation_dataframe["original_label"]
+        .astype(int)
+        .to_numpy()
+    )
+
+    model = model_config["build_model"]()
     model.fit(x_train, y_train)
 
-    f1_values = []
-    pr_auc_values = []
     stages = []
+    train_losses = []
+    validation_losses = []
 
-    for stage_index, (predictions, probabilities) in enumerate(
-            zip(model.staged_predict(x_test), model.staged_predict_proba(x_test)),
-            start=1,
+    train_stages = model.staged_predict_proba(x_train)
+    validation_stages = model.staged_predict_proba(x_validation)
+
+    for stage_index, (train_probabilities, validation_probabilities) in enumerate(
+        zip(train_stages, validation_stages),
+        start=1,
     ):
-        if stage_index == 1 or stage_index % 5 == 0 or stage_index == model.n_estimators:
-            predictions = np.asarray(predictions).astype(int)
-            scores = np.asarray(probabilities)[:, 1]
+        if (
+            stage_index == 1
+            or stage_index % 5 == 0
+            or stage_index == model.n_estimators
+        ):
+            train_probabilities = np.asarray(train_probabilities)[:, 1]
+            validation_probabilities = np.asarray(validation_probabilities)[:, 1]
+
             stages.append(stage_index)
-            f1_values.append(safe_f1_score(y_test, predictions))
-            pr_auc_values.append(safe_average_precision(y_test, scores))
+            train_losses.append(
+                log_loss(y_train, train_probabilities, labels=[0, 1])
+            )
+            validation_losses.append(
+                log_loss(y_validation, validation_probabilities, labels=[0, 1])
+            )
 
     if not stages:
         return None
 
-    plt.figure(figsize=(12, 6))
-    plt.plot(stages, f1_values, marker="o", label="F1-score")
+    best_index = int(np.argmin(validation_losses))
+    best_stage = stages[best_index]
+    best_validation_loss = validation_losses[best_index]
 
-    valid_pr_points = [
-        (stage, value)
-        for stage, value in zip(stages, pr_auc_values)
-        if value is not None
-    ]
+    figure, axis = plt.subplots(figsize=(14, 7), constrained_layout=True)
 
-    if valid_pr_points:
-        pr_stages, pr_values = zip(*valid_pr_points)
-        plt.plot(pr_stages, pr_values, marker="o", label="PR-AUC")
+    axis.plot(
+        stages,
+        train_losses,
+        marker="o",
+        markersize=5,
+        linewidth=2.3,
+        color=get_model_color("Isolation Forest"),
+        label="Training log loss",
+    )
+    axis.plot(
+        stages,
+        validation_losses,
+        marker="o",
+        markersize=5,
+        linewidth=2.3,
+        color=get_model_color("Gradient Boosting"),
+        label="Validation log loss",
+    )
+    axis.axvline(
+        best_stage,
+        linestyle="--",
+        linewidth=1.5,
+        color="#666666",
+        label=f"Minimum validation loss (stage {best_stage})",
+    )
+    axis.scatter(
+        [best_stage],
+        [best_validation_loss],
+        s=75,
+        color=get_model_color("Gradient Boosting"),
+        zorder=5,
+    )
 
-    plt.title("Gradient Boosting staged performance on test split")
-    plt.xlabel("number of boosting stages")
-    plt.ylabel("score")
-    plt.ylim(0, 1.05)
-    plt.legend()
-    plt.grid(alpha=0.25)
+    axis.set_title(
+        "Gradient Boosting learning dynamics across boosting stages",
+        pad=12,
+    )
+    axis.set_xlabel("Number of boosting stages")
+    axis.set_ylabel("Log loss")
+    axis.grid()
+    axis.set_axisbelow(True)
+    axis.legend(
+        loc="upper right",
+        frameon=True,
+        facecolor="white",
+        framealpha=0.95,
+    )
+
     save_plot(path)
-
     return path
 
 
 
-def remove_obsolete_figures() -> None:
-    obsolete_names = [
-        "confusion_matrices.png",
-        "gradient_boosting_convergence_curve.png",
-    ]
+def plot_feature_correlation_heatmap(
+    feature_dataframe: pd.DataFrame,
+    path: Path,
+) -> Optional[Path]:
+    if feature_dataframe.empty:
+        return None
 
-    for figure_name in obsolete_names:
-        figure_path = FIGURES_DIR / figure_name
-        if figure_path.exists():
-            figure_path.unlink()
+    numeric_dataframe = feature_dataframe.copy()
+
+    for column in FEATURE_COLUMNS:
+        numeric_dataframe[column] = pd.to_numeric(numeric_dataframe[column], errors="coerce")
+
+    correlation = numeric_dataframe[FEATURE_COLUMNS].corr()
+
+    if correlation.empty:
+        return None
+
+    figure, axis = plt.subplots(figsize=(10.5, 9), constrained_layout=True)
+    image = axis.imshow(
+        correlation,
+        cmap=CORRELATION_CMAP,
+        vmin=-1,
+        vmax=1,
+        aspect="equal",
+    )
+
+    axis.set_xticks(np.arange(len(FEATURE_COLUMNS)))
+    axis.set_yticks(np.arange(len(FEATURE_COLUMNS)))
+    axis.set_xticklabels(FEATURE_COLUMNS, rotation=35, ha="right", fontsize=9)
+    axis.set_yticklabels(FEATURE_COLUMNS, fontsize=9)
+    axis.set_title("Feature correlation matrix", pad=12, fontsize=14, fontweight="semibold")
+
+    for i in range(len(FEATURE_COLUMNS)):
+        for j in range(len(FEATURE_COLUMNS)):
+            value = correlation.iloc[i, j]
+            if pd.isna(value):
+                continue
+
+            text_color = "white" if abs(value) >= 0.65 else TEXT_COLOR
+            axis.text(
+                j,
+                i,
+                f"{value:.2f}",
+                ha="center",
+                va="center",
+                fontsize=8.1,
+                color=text_color,
+            )
+
+    colorbar = figure.colorbar(image, ax=axis, fraction=0.045, pad=0.04)
+    colorbar.set_label("Pearson correlation")
+    colorbar.ax.tick_params(labelsize=8.5)
+
+    save_plot(path)
+    return path
+
+
+def remove_obsolete_figures() -> None:
+    # kept for compatibility with earlier versions
+    clear_figures_directory()
+
 
 def generate_figures(dataset_id: int, metrics: pd.DataFrame) -> list[Path]:
-    # regenerate figures used in the markdown report
-    remove_obsolete_figures()
+    # start from a clean figures folder on every report run
+    clear_figures_directory()
 
     generated_paths = []
 
     figure_paths = [
+        plot_feature_scaling_diagnostics(
+            dataset_id,
+            FIGURES_DIR / "feature_scaling_diagnostics.png",
+        ),
         plot_multi_metric_bar(
             metrics,
             ["accuracy", "precision_score", "recall_score", "f1_score"],
@@ -1289,10 +2232,10 @@ def generate_figures(dataset_id: int, metrics: pd.DataFrame) -> list[Path]:
             "seconds",
             FIGURES_DIR / "prediction_time_bar.png",
         ),
-        plot_anomaly_score_boxplot(dataset_id, FIGURES_DIR / "anomaly_score_boxplot.png"),
-        plot_anomaly_score_swarm(dataset_id, FIGURES_DIR / "anomaly_score_swarm_plot.png"),
-        plot_supervised_learning_curves(dataset_id, FIGURES_DIR / "supervised_learning_curves.png"),
-        plot_gradient_boosting_staged_performance(dataset_id, FIGURES_DIR / "gradient_boosting_staged_performance.png"),
+        plot_feature_correlation_heatmap(
+            get_feature_dataframe(dataset_id),
+            FIGURES_DIR / "feature_correlation_heatmap.png",
+        ),
     ]
 
     confusion_paths = plot_confusion_matrices(metrics)
@@ -1372,7 +2315,7 @@ def build_report() -> str:
         f"- Rows kept after cleaning: **{counts['clean_count']}**",
         f"- Rows removed during cleaning: **{removed_rows}**",
         "- Invalid timestamps and invalid radiation values are removed",
-        "- Temperature and humidity missing values are filled with median values",
+        "- Missing temperature and humidity values are kept during cleaning and are filled later using values learned only from the training data",
         "- Empty sensor IDs are replaced with `UNKNOWN_SENSOR`",
         "- Empty locations are replaced with `Unknown`",
         "- Original anomaly labels are normalized when they exist in the dataset",
@@ -1413,12 +2356,12 @@ def build_report() -> str:
         "",
         "| Group | Models | Reason for inclusion |",
         "|---|---|---|",
-        "| Unsupervised anomaly detection | Isolation Forest, Local Outlier Factor, One-Class SVM, DBSCAN, K-Means Distance, Gaussian Mixture Model, PCA Reconstruction Error, HBOS, ECOD | Used when anomaly labels are not available |",
+        "| Unsupervised anomaly detection | Isolation Forest, Local Outlier Factor, One-Class SVM, DBSCAN, K-Means, Gaussian Mixture Model, PCA, HBOS, ECOD | Used when anomaly labels are not available |",
         "| Supervised classification | Logistic Regression, Decision Tree, Random Forest, Gradient Boosting, KNN Classifier | Used when labels exist and the model can be evaluated directly |",
         "",
         "## 7. Evaluation Methodology",
         "",
-        "The dataset is split chronologically: the first 70% of records are used for training and the last 30% for testing. This is more suitable for time-series data than a random split, because random splitting would mix earlier and later measurements and could give an unrealistically clean evaluation.",
+        "The dataset is split chronologically: the first 70% of records are used for model development and the last 30% are kept as the final test set. Missing-value replacement and model scaling are fitted only on the training data.",
         "",
         "When original labels are available, the model predictions are compared with the `is_anomaly` values. The report includes accuracy, precision, recall, F1-score, ROC-AUC, PR-AUC, FPR, FNR and confusion-matrix values. Accuracy is shown, but it is not enough on its own because the dataset contains many more normal measurements than anomalies.",
         "",
@@ -1472,7 +2415,7 @@ def build_report() -> str:
             "",
             "## 11. Generated Figures",
             "",
-            "The figures are used to support the metric table. Confusion matrices show correct and incorrect predictions, ROC and PR curves show model behavior across thresholds, and box/swarm plots show the distribution of anomaly scores. Learning curves are included for supervised models, where the training size can be varied in a standard way.",
+            "The figures support the metric table with feature diagnostics, model comparisons, confusion matrices and ROC and Precision-Recall curves. Classification curves use anomaly scores stored by the main model pipeline on the chronological test split.",
             "",
         ]
     )

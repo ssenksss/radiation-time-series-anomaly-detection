@@ -250,8 +250,8 @@ const formatAlertType = (type: string | null | undefined) => {
     spike: 'Spike',
 
     threshold_detection: 'Warning',
-    model_detection: 'Warning',
-    ml_detected: 'Warning',
+    model_detection: 'ML Anomaly',
+    ml_detected: 'ML Anomaly',
     sustained_increase: 'Warning',
     sensor_drop: 'Warning',
   }

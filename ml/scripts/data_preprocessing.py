@@ -36,16 +36,6 @@ def normalize_boolean(value) -> Optional[bool]:
     return None
 
 
-def fill_numeric_with_safe_median(series: pd.Series, default_value: float = 0.0) -> pd.Series:
-    # median is used for missing sensor values
-    numeric = pd.to_numeric(series, errors="coerce")
-    median = numeric.median()
-
-    if pd.isna(median):
-        median = default_value
-
-    return numeric.fillna(median)
-
 
 def load_raw_measurements(dataset_id: int) -> pd.DataFrame:
     # load raw rows from the first elt layer
@@ -81,14 +71,16 @@ def clean_raw_dataframe(dataframe: pd.DataFrame) -> pd.DataFrame:
     cleaned["timestamp"] = pd.to_datetime(cleaned["timestamp_raw"], errors="coerce")
     cleaned["radiation_level"] = pd.to_numeric(cleaned["radiation_raw"], errors="coerce")
 
-    cleaned["temperature"] = fill_numeric_with_safe_median(
-        cleaned["temperature_raw"],
-        default_value=0.0,
+    # keep missing values here
+    # replacement values will be learned from training data later
+    cleaned["temperature"] = pd.to_numeric(
+    cleaned["temperature_raw"],
+    errors="coerce",
     )
 
-    cleaned["humidity"] = fill_numeric_with_safe_median(
-        cleaned["humidity_raw"],
-        default_value=0.0,
+    cleaned["humidity"] = pd.to_numeric(
+    cleaned["humidity_raw"],
+    errors="coerce",
     )
 
     cleaned["original_label"] = cleaned["is_anomaly_raw"].apply(normalize_boolean)

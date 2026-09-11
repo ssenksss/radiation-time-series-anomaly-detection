@@ -37,7 +37,7 @@ UNSUPERVISED_MODELS = [
     },
     {
         "id": "kmeans_distance",
-        "name": "K-Means Distance",
+        "name": "K-Means",
         "category": "unsupervised",
         "requiresLabels": False,
         "status": "implemented",
@@ -51,7 +51,7 @@ UNSUPERVISED_MODELS = [
     },
     {
         "id": "pca_reconstruction",
-        "name": "PCA Reconstruction Error",
+        "name": "PCA",
         "category": "unsupervised",
         "requiresLabels": False,
         "status": "implemented",
@@ -521,7 +521,8 @@ def load_labeled_curve_rows(dataset_id: int, model_name: str) -> List[dict]:
         SELECT
             ar.anomaly_score,
             cm.original_label,
-            ar.timestamp
+            ar.timestamp,
+            ar.evaluation_split
         FROM anomaly_results ar
         JOIN feature_measurements fm
             ON ar.feature_measurement_id = fm.id
@@ -540,6 +541,16 @@ def load_labeled_curve_rows(dataset_id: int, model_name: str) -> List[dict]:
 
 
 def get_curve_evaluation_rows(model_id: str, rows: List[dict]) -> Tuple[List[dict], str]:
+    test_rows = [
+        row
+        for row in rows
+        if row.get("evaluation_split") == "test"
+    ]
+
+    if test_rows:
+        return test_rows, "chronological test split"
+
+    # compatibility fallback for results created before split membership was stored
     split_index = int(len(rows) * TRAIN_RATIO)
 
     if split_index <= 0 or split_index >= len(rows):
