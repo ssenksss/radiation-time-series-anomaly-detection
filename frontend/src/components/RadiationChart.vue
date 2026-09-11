@@ -13,83 +13,85 @@
       </div>
     </div>
 
-    <div v-if="!hasData" class="chart-empty">
-      No chart data available.
-    </div>
+    <div v-if="!hasData" class="chart-empty">No chart data available.</div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import Chart from 'chart.js/auto'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import Chart from "chart.js/auto";
 
 const props = withDefaults(
-    defineProps<{
-      labels?: string[]
-      values?: number[]
-      threshold?: number
-      anomalyFlags?: boolean[]
-    }>(),
-    {
-      threshold: 0.18,
-    },
-)
+  defineProps<{
+    labels?: string[];
+    values?: number[];
+    threshold?: number;
+    anomalyFlags?: boolean[];
+  }>(),
+  {
+    threshold: 0.18,
+  }
+);
 
-const values = computed(() => props.values ?? [])
+const values = computed(() => props.values ?? []);
 
 const labels = computed(() => {
-  const incomingLabels = props.labels ?? []
+  const incomingLabels = props.labels ?? [];
 
   if (!values.value.length) {
-    return []
+    return [];
   }
 
   if (incomingLabels.length === values.value.length) {
-    return incomingLabels
+    return incomingLabels;
   }
 
-  return values.value.map((_, index) => incomingLabels[index] ?? `#${index + 1}`)
-})
+  return values.value.map(
+    (_, index) => incomingLabels[index] ?? `#${index + 1}`
+  );
+});
 
 const hasData = computed(() => {
-  return labels.value.length > 0 && values.value.length > 0
-})
+  return labels.value.length > 0 && values.value.length > 0;
+});
 
 const observedMaximum = computed(() => {
-  if (!values.value.length) return 0
+  if (!values.value.length) return 0;
 
-  return Math.max(...values.value)
-})
+  return Math.max(...values.value);
+});
 
 const thresholdAboveVisibleRange = computed(() => {
-  if (observedMaximum.value <= 0) return false
+  if (observedMaximum.value <= 0) return false;
 
-  return props.threshold > observedMaximum.value * 1.35
-})
+  return props.threshold > observedMaximum.value * 1.35;
+});
 
-const thresholdDisplayValue = computed(() => Number(props.threshold).toFixed(4))
+const thresholdDisplayValue = computed(() =>
+  Number(props.threshold).toFixed(4)
+);
 
 const MONTH_LABELS = [
-  'Jan',
-  'Feb',
-  'Mar',
-  'Apr',
-  'May',
-  'Jun',
-  'Jul',
-  'Aug',
-  'Sep',
-  'Oct',
-  'Nov',
-  'Dec',
-]
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
 
 const parseTimestampParts = (timestamp: string) => {
   const match = timestamp.match(
-    /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/,
-  )
+    /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/
+  );
 
-  if (!match) return null
+  if (!match) return null;
 
   return {
     year: match[1],
@@ -97,99 +99,101 @@ const parseTimestampParts = (timestamp: string) => {
     day: match[3],
     hour: match[4],
     minute: match[5],
-    second: match[6] ?? '00',
-  }
-}
+    second: match[6] ?? "00",
+  };
+};
 
 const formatPeriodDate = (timestamp: string) => {
-  const parts = parseTimestampParts(timestamp)
+  const parts = parseTimestampParts(timestamp);
 
-  if (!parts) return timestamp
+  if (!parts) return timestamp;
 
-  const monthIndex = Number(parts.month) - 1
-  const month = MONTH_LABELS[monthIndex] ?? parts.month
+  const monthIndex = Number(parts.month) - 1;
+  const month = MONTH_LABELS[monthIndex] ?? parts.month;
 
-  return `${Number(parts.day)} ${month} ${parts.year}`
-}
+  return `${Number(parts.day)} ${month} ${parts.year}`;
+};
 
 const formatAxisTime = (timestamp: string) => {
-  const parts = parseTimestampParts(timestamp)
+  const parts = parseTimestampParts(timestamp);
 
-  if (!parts) return timestamp
+  if (!parts) return timestamp;
 
-  return `${parts.hour}:${parts.minute}`
-}
+  return `${parts.hour}:${parts.minute}`;
+};
 
 const formatTooltipTimestamp = (timestamp: string) => {
-  const parts = parseTimestampParts(timestamp)
+  const parts = parseTimestampParts(timestamp);
 
-  if (!parts) return timestamp
+  if (!parts) return timestamp;
 
-  return `${parts.day}.${parts.month}.${parts.year} ${parts.hour}:${parts.minute}:${parts.second}`
-}
+  return `${parts.day}.${parts.month}.${parts.year} ${parts.hour}:${parts.minute}:${parts.second}`;
+};
 
 const chartPeriodLabel = computed(() => {
-  if (!labels.value.length) return ''
+  if (!labels.value.length) return "";
 
-  const firstTimestamp = labels.value[0]
-  const lastTimestamp = labels.value[labels.value.length - 1]
-  const firstDate = formatPeriodDate(firstTimestamp)
-  const lastDate = formatPeriodDate(lastTimestamp)
+  const firstTimestamp = labels.value[0];
+  const lastTimestamp = labels.value[labels.value.length - 1];
+  const firstDate = formatPeriodDate(firstTimestamp);
+  const lastDate = formatPeriodDate(lastTimestamp);
 
-  return firstDate === lastDate ? firstDate : `${firstDate} – ${lastDate}`
-})
+  return firstDate === lastDate ? firstDate : `${firstDate} – ${lastDate}`;
+});
 
 const anomalyValues = computed(() =>
-    values.value.map((value, index) => {
-      if (props.anomalyFlags && props.anomalyFlags.length) {
-        return props.anomalyFlags[index] ? value : null
-      }
+  values.value.map((value, index) => {
+    if (props.anomalyFlags && props.anomalyFlags.length) {
+      return props.anomalyFlags[index] ? value : null;
+    }
 
-      return value > props.threshold ? value : null
-    }),
-)
+    return value > props.threshold ? value : null;
+  })
+);
 
 const thresholdValues = computed(() =>
-    values.value.map(() => thresholdAboveVisibleRange.value ? null : props.threshold),
-)
+  values.value.map(() =>
+    thresholdAboveVisibleRange.value ? null : props.threshold
+  )
+);
 
-const chartRef = ref<HTMLCanvasElement | null>(null)
-let chartInstance: Chart | null = null
+const chartRef = ref<HTMLCanvasElement | null>(null);
+let chartInstance: Chart | null = null;
 
 const destroyChart = () => {
   if (chartInstance) {
-    chartInstance.destroy()
-    chartInstance = null
+    chartInstance.destroy();
+    chartInstance = null;
   }
-}
+};
 
 const renderChart = () => {
-  destroyChart()
+  destroyChart();
 
-  if (!chartRef.value || !hasData.value) return
+  if (!chartRef.value || !hasData.value) return;
 
-  const ctx = chartRef.value.getContext('2d')
-  if (!ctx) return
+  const ctx = chartRef.value.getContext("2d");
+  if (!ctx) return;
 
-  const gradient = ctx.createLinearGradient(0, 0, 0, 320)
-  gradient.addColorStop(0, 'rgba(110, 231, 255, 0.20)')
-  gradient.addColorStop(1, 'rgba(110, 231, 255, 0.01)')
+  const gradient = ctx.createLinearGradient(0, 0, 0, 320);
+  gradient.addColorStop(0, "rgba(110, 231, 255, 0.20)");
+  gradient.addColorStop(1, "rgba(110, 231, 255, 0.01)");
 
   const maxValue = thresholdAboveVisibleRange.value
-      ? observedMaximum.value
-      : Math.max(observedMaximum.value, props.threshold)
-  const chartPadding = Math.max(0.01, maxValue * 0.08)
-  const roundedMax = Math.ceil((maxValue + chartPadding) / 0.05) * 0.05
+    ? observedMaximum.value
+    : Math.max(observedMaximum.value, props.threshold);
+  const chartPadding = Math.max(0.01, maxValue * 0.08);
+  const roundedMax = Math.ceil((maxValue + chartPadding) / 0.05) * 0.05;
 
   chartInstance = new Chart(ctx, {
-    type: 'line',
+    type: "line",
     data: {
       labels: labels.value,
       datasets: [
         {
-          label: 'Radiation Levels',
+          label: "Radiation Levels",
           data: values.value,
-          borderColor: '#79dbff',
+          borderColor: "#79dbff",
           backgroundColor: gradient,
           fill: true,
           tension: 0.42,
@@ -198,20 +202,20 @@ const renderChart = () => {
           pointHoverRadius: 4,
         },
         {
-          label: 'ML-detected anomalies',
+          label: "ML-detected anomalies",
           data: anomalyValues.value,
-          borderColor: 'transparent',
-          backgroundColor: '#ff8d6f',
-          pointBorderColor: '#ffc3ad',
+          borderColor: "transparent",
+          backgroundColor: "#ff8d6f",
+          pointBorderColor: "#ffc3ad",
           pointBorderWidth: 2,
           pointRadius: 6,
           pointHoverRadius: 6,
           showLine: false,
         },
         {
-          label: 'Anomaly Threshold',
+          label: "Anomaly Threshold",
           data: thresholdValues.value,
-          borderColor: '#ff9b58',
+          borderColor: "#ff9b58",
           borderWidth: 2,
           borderDash: [8, 6],
           pointRadius: 0,
@@ -233,27 +237,27 @@ const renderChart = () => {
           display: false,
         },
         tooltip: {
-          backgroundColor: 'rgba(9, 14, 28, 0.96)',
-          borderColor: 'rgba(120, 151, 235, 0.16)',
+          backgroundColor: "rgba(9, 14, 28, 0.96)",
+          borderColor: "rgba(120, 151, 235, 0.16)",
           borderWidth: 1,
-          titleColor: '#eef4ff',
-          bodyColor: '#d6e3ff',
+          titleColor: "#eef4ff",
+          bodyColor: "#d6e3ff",
           displayColors: true,
           callbacks: {
-            title: (items) => formatTooltipTimestamp(items[0]?.label ?? ''),
+            title: (items) => formatTooltipTimestamp(items[0]?.label ?? ""),
           },
         },
       },
       scales: {
         x: {
           grid: {
-            color: 'rgba(255,255,255,0.04)',
+            color: "rgba(255,255,255,0.04)",
           },
           border: {
             display: false,
           },
           ticks: {
-            color: '#8296be',
+            color: "#8296be",
             font: {
               size: 12,
             },
@@ -262,7 +266,7 @@ const renderChart = () => {
             maxRotation: 0,
             autoSkipPadding: 24,
             callback(value) {
-              return formatAxisTime(this.getLabelForValue(Number(value)))
+              return formatAxisTime(this.getLabelForValue(Number(value)));
             },
           },
         },
@@ -270,21 +274,21 @@ const renderChart = () => {
           min: 0,
           max: roundedMax,
           ticks: {
-            color: '#8296be',
+            color: "#8296be",
             font: {
               size: 12,
             },
           },
           grid: {
-            color: 'rgba(255,255,255,0.04)',
+            color: "rgba(255,255,255,0.04)",
           },
           border: {
             display: false,
           },
           title: {
             display: true,
-            text: 'Radiation level (µSv/h)',
-            color: '#9db0d5',
+            text: "Radiation level (µSv/h)",
+            color: "#9db0d5",
             font: {
               size: 12,
               weight: 600,
@@ -293,22 +297,22 @@ const renderChart = () => {
         },
       },
     },
-  })
-}
+  });
+};
 
-onMounted(renderChart)
+onMounted(renderChart);
 
 watch(
-    () => [props.labels, props.values, props.threshold, props.anomalyFlags],
-    () => {
-      renderChart()
-    },
-    { deep: true },
-)
+  () => [props.labels, props.values, props.threshold, props.anomalyFlags],
+  () => {
+    renderChart();
+  },
+  { deep: true }
+);
 
 onBeforeUnmount(() => {
-  destroyChart()
-})
+  destroyChart();
+});
 </script>
 
 <style scoped>
@@ -317,7 +321,11 @@ onBeforeUnmount(() => {
   height: 330px;
   border-radius: 18px;
   overflow: hidden;
-  background: linear-gradient(180deg, rgba(8, 13, 28, 0.58), rgba(8, 13, 28, 0.92));
+  background: linear-gradient(
+    180deg,
+    rgba(8, 13, 28, 0.58),
+    rgba(8, 13, 28, 0.92)
+  );
   border: 1px solid rgba(120, 151, 235, 0.08);
   padding: 12px 14px 8px;
 }

@@ -1,241 +1,258 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
-import MainLayout from '../layouts/MainLayout.vue'
-import RadiationChart from '../components/RadiationChart.vue'
-import ModelTestingModal from '../components/ModelTestingModal.vue'
-import AnomaliesLogModal from '../components/AnomaliesLogModal.vue'
+import { computed, onMounted, ref } from "vue";
+import { useRouter } from "vue-router";
+import MainLayout from "../layouts/MainLayout.vue";
+import RadiationChart from "../components/RadiationChart.vue";
+import ModelTestingModal from "../components/ModelTestingModal.vue";
+import AnomaliesLogModal from "../components/AnomaliesLogModal.vue";
 import {
   getAnomalies,
   getMeasurements,
   getModelInfo,
   getSummary,
-} from '../services/api'
-import type { Measurement, ModelComparisonItem, ModelInfo, Summary } from '../types/api'
+} from "../services/api";
+import type {
+  Measurement,
+  ModelComparisonItem,
+  ModelInfo,
+  Summary,
+} from "../types/api";
 
-const router = useRouter()
+const router = useRouter();
 
-const MAX_CHART_POINTS = 500
+const MAX_CHART_POINTS = 500;
 
-const isModelModalOpen = ref(false)
-const isLogModalOpen = ref(false)
-const alertVisible = ref(true)
+const isModelModalOpen = ref(false);
+const isLogModalOpen = ref(false);
+const alertVisible = ref(true);
 
-const measurements = ref<Measurement[]>([])
-const anomalies = ref<Measurement[]>([])
-const summary = ref<Summary | null>(null)
-const modelInfo = ref<ModelInfo | null>(null)
+const measurements = ref<Measurement[]>([]);
+const anomalies = ref<Measurement[]>([]);
+const summary = ref<Summary | null>(null);
+const modelInfo = ref<ModelInfo | null>(null);
 
-const isLoading = ref(true)
-const errorMessage = ref('')
+const isLoading = ref(true);
+const errorMessage = ref("");
 
 const openModelModal = () => {
-  isModelModalOpen.value = true
-}
+  isModelModalOpen.value = true;
+};
 
 const closeModelModal = () => {
-  isModelModalOpen.value = false
-}
+  isModelModalOpen.value = false;
+};
 
 const updateModelInfoFromModal = (updatedModelInfo: ModelInfo) => {
-  modelInfo.value = updatedModelInfo
-}
+  modelInfo.value = updatedModelInfo;
+};
 
 const openLogModal = () => {
-  isLogModalOpen.value = true
-}
+  isLogModalOpen.value = true;
+};
 
 const closeLogModal = () => {
-  isLogModalOpen.value = false
-}
+  isLogModalOpen.value = false;
+};
 
 const acknowledgeAlert = () => {
-  alertVisible.value = false
-}
+  alertVisible.value = false;
+};
 
 const goToDataset = () => {
-  router.push('/dataset')
-}
+  router.push("/dataset");
+};
 
 const formatNumber = (value: number | null | undefined, digits = 4) => {
   if (value === null || value === undefined || Number.isNaN(Number(value))) {
-    return Number(0).toFixed(digits)
+    return Number(0).toFixed(digits);
   }
 
-  return Number(value).toFixed(digits)
-}
+  return Number(value).toFixed(digits);
+};
 
 const formatPercent = (value: number | null | undefined, digits = 1) => {
   if (value === null || value === undefined || Number.isNaN(Number(value))) {
-    return 'N/A'
+    return "N/A";
   }
 
-  return `${Number(value).toFixed(digits)}%`
-}
+  return `${Number(value).toFixed(digits)}%`;
+};
 
 const formatMetric = (value: number | null | undefined) => {
   if (value === null || value === undefined || Number.isNaN(Number(value))) {
-    return 'N/A'
+    return "N/A";
   }
 
-  return Number(value).toFixed(3)
-}
+  return Number(value).toFixed(3);
+};
 
 const formatSeconds = (value: number | null | undefined) => {
   if (value === null || value === undefined || Number.isNaN(Number(value))) {
-    return 'N/A'
+    return "N/A";
   }
 
-  return `${Number(value).toFixed(4)}s`
-}
+  return `${Number(value).toFixed(4)}s`;
+};
 
 const getDetectionLabel = (type: string | null | undefined) => {
-  if (!type) return 'None'
+  if (!type) return "None";
 
-  const normalizedType = type.toLowerCase().replaceAll(' ', '_')
+  const normalizedType = type.toLowerCase().replaceAll(" ", "_");
 
   const labels: Record<string, string> = {
-    normal: 'None',
-    warning: 'Threshold',
-    critical: 'ML + Threshold',
-    ml_anomaly: 'ML Model',
-    threshold_detection: 'Threshold',
-    model_detection: 'ML Model',
-    ml_detected: 'ML Model',
-    spike: 'ML + Threshold',
-    sustained_increase: 'Threshold',
-    sensor_drop: 'Threshold',
-  }
+    normal: "None",
+    warning: "Threshold",
+    critical: "ML + Threshold",
+    ml_anomaly: "ML Model",
+    threshold_detection: "Threshold",
+    model_detection: "ML Model",
+    ml_detected: "ML Model",
+    spike: "ML + Threshold",
+    sustained_increase: "Threshold",
+    sensor_drop: "Threshold",
+  };
 
-  return labels[normalizedType] ?? normalizedType.replaceAll('_', ' ')
-}
+  return labels[normalizedType] ?? normalizedType.replaceAll("_", " ");
+};
 
 const getDetectionType = (type: string | null | undefined) => {
-  const normalizedType = type?.toLowerCase().replaceAll(' ', '_')
+  const normalizedType = type?.toLowerCase().replaceAll(" ", "_");
 
-  if (normalizedType === 'critical' || normalizedType === 'spike') return 'combined'
+  if (normalizedType === "critical" || normalizedType === "spike")
+    return "combined";
   if (
-    normalizedType === 'ml_anomaly' ||
-    normalizedType === 'model_detection' ||
-    normalizedType === 'ml_detected'
+    normalizedType === "ml_anomaly" ||
+    normalizedType === "model_detection" ||
+    normalizedType === "ml_detected"
   ) {
-    return 'model'
+    return "model";
   }
   if (
-    normalizedType === 'warning' ||
-    normalizedType === 'threshold_detection' ||
-    normalizedType === 'sustained_increase' ||
-    normalizedType === 'sensor_drop'
+    normalizedType === "warning" ||
+    normalizedType === "threshold_detection" ||
+    normalizedType === "sustained_increase" ||
+    normalizedType === "sensor_drop"
   ) {
-    return 'threshold'
+    return "threshold";
   }
 
-  return 'none'
-}
+  return "none";
+};
 
 const getDashboardStatus = (status: string | null | undefined) => {
-  if (status === 'Critical') return { label: 'Critical', type: 'critical' }
-  if (status === 'Warning') return { label: 'Warning', type: 'warning' }
-  if (status === 'ML Anomaly') return { label: 'Detected', type: 'detected' }
+  if (status === "Critical") return { label: "Critical", type: "critical" };
+  if (status === "Warning") return { label: "Warning", type: "warning" };
+  if (status === "ML Anomaly") return { label: "Detected", type: "detected" };
 
-  return { label: 'Clear', type: 'normal' }
-}
+  return { label: "Clear", type: "normal" };
+};
 
 const reduceChartPoints = (rows: Measurement[]) => {
-  if (rows.length <= MAX_CHART_POINTS) return rows
+  if (rows.length <= MAX_CHART_POINTS) return rows;
 
-  const selectedIndexes = new Set<number>([0, rows.length - 1])
+  const selectedIndexes = new Set<number>([0, rows.length - 1]);
 
   rows.forEach((item, index) => {
-    if (item.isAnomaly) selectedIndexes.add(index)
-  })
+    if (item.isAnomaly) selectedIndexes.add(index);
+  });
 
   if (selectedIndexes.size > MAX_CHART_POINTS) {
-    const anomalyIndexes = [...selectedIndexes].sort((a, b) => a - b)
-    const anomalyStep = Math.ceil(anomalyIndexes.length / MAX_CHART_POINTS)
+    const anomalyIndexes = [...selectedIndexes].sort((a, b) => a - b);
+    const anomalyStep = Math.ceil(anomalyIndexes.length / MAX_CHART_POINTS);
 
     return anomalyIndexes
-        .filter((_, index) => index % anomalyStep === 0)
-        .slice(0, MAX_CHART_POINTS)
-        .map((index) => rows[index])
+      .filter((_, index) => index % anomalyStep === 0)
+      .slice(0, MAX_CHART_POINTS)
+      .map((index) => rows[index]);
   }
 
-  const remainingPlaces = MAX_CHART_POINTS - selectedIndexes.size
+  const remainingPlaces = MAX_CHART_POINTS - selectedIndexes.size;
 
   if (remainingPlaces > 0) {
-    const regularStep = Math.max(1, Math.ceil(rows.length / remainingPlaces))
+    const regularStep = Math.max(1, Math.ceil(rows.length / remainingPlaces));
 
-    for (let index = 0; index < rows.length && selectedIndexes.size < MAX_CHART_POINTS; index += regularStep) {
-      selectedIndexes.add(index)
+    for (
+      let index = 0;
+      index < rows.length && selectedIndexes.size < MAX_CHART_POINTS;
+      index += regularStep
+    ) {
+      selectedIndexes.add(index);
     }
   }
 
-  return [...selectedIndexes]
-      .sort((a, b) => a - b)
-      .map((index) => rows[index])
-}
+  return [...selectedIndexes].sort((a, b) => a - b).map((index) => rows[index]);
+};
 
-const latestAnomaly = computed(() => anomalies.value[0] ?? null)
+const latestAnomaly = computed(() => anomalies.value[0] ?? null);
 
 const showAlert = computed(() => {
-  return alertVisible.value && anomalies.value.length > 0
-})
+  return alertVisible.value && anomalies.value.length > 0;
+});
 
-const chartMeasurements = computed(() => reduceChartPoints(measurements.value))
+const chartMeasurements = computed(() => reduceChartPoints(measurements.value));
 
 const chartLabels = computed(() =>
-    chartMeasurements.value.map((item) => item.timestamp),
-)
+  chartMeasurements.value.map((item) => item.timestamp)
+);
 
 const chartValues = computed(() =>
-    chartMeasurements.value.map((item) => item.radiationLevel),
-)
+  chartMeasurements.value.map((item) => item.radiationLevel)
+);
 
 const chartAnomalyFlags = computed(() =>
-    chartMeasurements.value.map((item) => item.isAnomaly),
-)
+  chartMeasurements.value.map((item) => item.isAnomaly)
+);
 
 const isUnsupervisedEvaluation = computed(() => {
-  return modelInfo.value?.evaluationMode === 'unsupervised'
-})
+  return modelInfo.value?.evaluationMode === "unsupervised";
+});
 
 const modelPrimaryScore = computed(() => {
   if (isUnsupervisedEvaluation.value) {
-    return modelInfo.value?.modelScore ?? null
+    return modelInfo.value?.modelScore ?? null;
   }
 
-  return modelInfo.value?.accuracy ?? null
-})
+  return modelInfo.value?.accuracy ?? null;
+});
 
 const modelPrimaryLabel = computed(() => {
-  if (isUnsupervisedEvaluation.value) return 'Model Score'
+  if (isUnsupervisedEvaluation.value) return "Model Score";
 
-  return 'Model Performance'
-})
+  return "Model Performance";
+});
 
 const modelMetricLabel = computed(() => {
-  if (isUnsupervisedEvaluation.value) return 'Model Score'
+  if (isUnsupervisedEvaluation.value) return "Model Score";
 
-  return 'Accuracy'
-})
+  return "Accuracy";
+});
 
-const activeModelName = computed(() => modelInfo.value?.currentModel ?? 'Detection Model')
+const activeModelName = computed(
+  () => modelInfo.value?.currentModel ?? "Detection Model"
+);
 
 const comparisonItems = computed<ModelComparisonItem[]>(() => {
-  const items = modelInfo.value?.comparison ?? []
+  const items = modelInfo.value?.comparison ?? [];
 
   if (items.length) {
-    return items
+    return items;
   }
 
-  if (modelPrimaryScore.value !== null && modelPrimaryScore.value !== undefined) {
+  if (
+    modelPrimaryScore.value !== null &&
+    modelPrimaryScore.value !== undefined
+  ) {
     return [
       {
-        id: 'current',
+        id: "current",
         model: activeModelName.value,
         score: modelPrimaryScore.value,
-        modelScore: isUnsupervisedEvaluation.value ? modelPrimaryScore.value : null,
-        accuracy: isUnsupervisedEvaluation.value ? null : modelPrimaryScore.value,
+        modelScore: isUnsupervisedEvaluation.value
+          ? modelPrimaryScore.value
+          : null,
+        accuracy: isUnsupervisedEvaluation.value
+          ? null
+          : modelPrimaryScore.value,
         precision: modelInfo.value?.precision ?? null,
         recall: null,
         fpr: modelInfo.value?.fpr ?? null,
@@ -245,121 +262,134 @@ const comparisonItems = computed<ModelComparisonItem[]>(() => {
         totalAnomalies: modelInfo.value?.totalAnomalies,
         anomalyRate: modelInfo.value?.anomalyRate,
         active: true,
-        status: 'Computed',
+        status: "Computed",
       },
-    ]
+    ];
   }
 
-  return []
-})
+  return [];
+});
 
 const modelPanelPrimary = computed(() => {
-  return comparisonItems.value[0] ?? null
-})
+  return comparisonItems.value[0] ?? null;
+});
 
 const modelPanelName = computed(() => {
-  return modelPanelPrimary.value?.model ?? activeModelName.value
-})
+  return modelPanelPrimary.value?.model ?? activeModelName.value;
+});
 
 const modelPanelScore = computed(() => {
   if (isUnsupervisedEvaluation.value) {
-    return modelPanelPrimary.value?.modelScore ??
-        modelPanelPrimary.value?.score ??
-        modelInfo.value?.modelScore ??
-        null
+    return (
+      modelPanelPrimary.value?.modelScore ??
+      modelPanelPrimary.value?.score ??
+      modelInfo.value?.modelScore ??
+      null
+    );
   }
-  return modelPanelPrimary.value?.accuracy ?? modelInfo.value?.accuracy ?? null
-})
+  return modelPanelPrimary.value?.accuracy ?? modelInfo.value?.accuracy ?? null;
+});
 
 const modelPanelPrecision = computed(() => {
-  return modelPanelPrimary.value?.precision ?? modelInfo.value?.precision
-})
-
-
+  return modelPanelPrimary.value?.precision ?? modelInfo.value?.precision;
+});
 
 const modelPanelRecall = computed(() => {
-  return modelPanelPrimary.value?.recall ?? modelInfo.value?.recall
-})
+  return modelPanelPrimary.value?.recall ?? modelInfo.value?.recall;
+});
 
 const modelPanelF1Score = computed(() => {
-  return modelPanelPrimary.value?.f1Score ?? modelInfo.value?.f1Score
-})
+  return modelPanelPrimary.value?.f1Score ?? modelInfo.value?.f1Score;
+});
 
 const modelPanelRocAuc = computed(() => {
-  return modelPanelPrimary.value?.rocAuc ?? modelInfo.value?.rocAuc
-})
+  return modelPanelPrimary.value?.rocAuc ?? modelInfo.value?.rocAuc;
+});
 
 const modelPanelTrainingTime = computed(() => {
-  return modelPanelPrimary.value?.trainingTimeSeconds ?? modelInfo.value?.trainingTimeSeconds
-})
+  return (
+    modelPanelPrimary.value?.trainingTimeSeconds ??
+    modelInfo.value?.trainingTimeSeconds
+  );
+});
 
 const modelPanelPredictionTime = computed(() => {
-  return modelPanelPrimary.value?.predictionTimeSeconds ?? modelInfo.value?.predictionTimeSeconds
-})
+  return (
+    modelPanelPrimary.value?.predictionTimeSeconds ??
+    modelInfo.value?.predictionTimeSeconds
+  );
+});
 
 const modelPanelAnomalyRate = computed(() => {
-  return modelPanelPrimary.value?.anomalyRate ?? modelInfo.value?.anomalyRate
-})
+  return modelPanelPrimary.value?.anomalyRate ?? modelInfo.value?.anomalyRate;
+});
 
 const modelPanelDetectedAnomalies = computed(() => {
-  return modelPanelPrimary.value?.totalAnomalies ?? modelInfo.value?.totalAnomalies
-})
+  return (
+    modelPanelPrimary.value?.totalAnomalies ?? modelInfo.value?.totalAnomalies
+  );
+});
 
 const modelBars = computed(() =>
-    comparisonItems.value.map((item, index) => {
-      const isPending = item.status?.toLowerCase().includes('pending')
-      const displayScore = item.evaluationMode === 'unsupervised'
-          ? item.modelScore ?? item.score
-          : item.accuracy ?? item.score
+  comparisonItems.value.map((item, index) => {
+    const isPending = item.status?.toLowerCase().includes("pending");
+    const displayScore =
+      item.evaluationMode === "unsupervised"
+        ? item.modelScore ?? item.score
+        : item.accuracy ?? item.score;
 
-      const score = Math.max(0, Math.min(100, Number(displayScore ?? 0)))
+    const score = Math.max(0, Math.min(100, Number(displayScore ?? 0)));
 
-      return {
-        label: item.model,
-        percent: isPending ? 'Pending' : formatPercent(displayScore),
-        height: isPending ? '22px' : `${Math.max(36, Math.round(score * 0.88))}px`,
-        active: index === 0,
-        pending: isPending,
-        status: item.status,
-      }
-    }),
-)
+    return {
+      label: item.model,
+      percent: isPending ? "Pending" : formatPercent(displayScore),
+      height: isPending
+        ? "22px"
+        : `${Math.max(36, Math.round(score * 0.88))}px`,
+      active: index === 0,
+      pending: isPending,
+      status: item.status,
+    };
+  })
+);
 
 const dashboardData = computed(() => {
-  const currentLevel = summary.value?.currentLevel ?? 0
-  const threshold = summary.value?.threshold ?? 0.18
-  const totalMeasurements = summary.value?.totalMeasurements ?? 0
-  const totalAnomalies = summary.value?.totalAnomalies ?? 0
-  const latest = latestAnomaly.value
+  const currentLevel = summary.value?.currentLevel ?? 0;
+  const threshold = summary.value?.threshold ?? 0.18;
+  const totalMeasurements = summary.value?.totalMeasurements ?? 0;
+  const totalAnomalies = summary.value?.totalAnomalies ?? 0;
+  const latest = latestAnomaly.value;
 
   return {
     header: {
-      title: 'Radiation Monitoring Dashboard',
+      title: "Radiation Monitoring Dashboard",
       subtitle:
-          'Interactive radiation monitoring system for anomaly detection in time-series data.',
+        "Interactive radiation monitoring system for anomaly detection in time-series data.",
     },
 
     chart: {
-      title: 'Radiation Over Time',
+      title: "Radiation Over Time",
       legend: {
-        radiation: 'Radiation level',
-        anomalies: 'ML-detected anomalies',
-        threshold: 'Threshold',
+        radiation: "Radiation level",
+        anomalies: "ML-detected anomalies",
+        threshold: "Threshold",
       },
     },
 
     alert: {
-title: latest
-      ? latest.status === 'Critical'
-          ? 'CRITICAL EVENT'
-          : latest.status === 'Warning'
-              ? 'RADIATION WARNING'
-              : 'ML ANOMALY DETECTED'
-      : 'RADIATION EVENT',
+      title: latest
+        ? latest.status === "Critical"
+          ? "CRITICAL EVENT"
+          : latest.status === "Warning"
+          ? "RADIATION WARNING"
+          : "ML ANOMALY DETECTED"
+        : "RADIATION EVENT",
       description: latest
-          ? `Detected ${latest.status.toLowerCase()} event at ${latest.timestamp}, radiation level ${formatNumber(latest.radiationLevel)} µSv/h.`
-          : 'An event requiring attention has been detected in the active dataset.',
-      buttonLabel: 'ACKNOWLEDGE',
+        ? `Detected ${latest.status.toLowerCase()} event at ${
+            latest.timestamp
+          }, radiation level ${formatNumber(latest.radiationLevel)} µSv/h.`
+        : "An event requiring attention has been detected in the active dataset.",
+      buttonLabel: "ACKNOWLEDGE",
     },
 
     stats: [
@@ -367,38 +397,41 @@ title: latest
         title: modelPrimaryLabel.value,
         value: formatPercent(modelPrimaryScore.value),
         meta: isUnsupervisedEvaluation.value
-            ? `${activeModelName.value} · ${modelInfo.value?.totalAnomalies ?? 0} detected anomalies`
-            : activeModelName.value,
-        icon: '✦',
+          ? `${activeModelName.value} · ${
+              modelInfo.value?.totalAnomalies ?? 0
+            } detected anomalies`
+          : activeModelName.value,
+        icon: "✦",
         danger: false,
         hasButton: true,
-        buttonLabel: 'View model',
+        buttonLabel: "View model",
       },
       {
-        title: 'Detected Anomalies',
+        title: "Detected Anomalies",
         value: totalAnomalies.toString(),
-        meta: totalAnomalies > 0 ? 'Review anomaly log' : 'No anomalies detected',
-        icon: '!',
+        meta:
+          totalAnomalies > 0 ? "Review anomaly log" : "No anomalies detected",
+        icon: "!",
         danger: totalAnomalies > 0,
         hasButton: false,
-        buttonLabel: '',
+        buttonLabel: "",
       },
       {
-        title: 'Total Measurements',
+        title: "Total Measurements",
         value: totalMeasurements.toLocaleString(),
-        meta: summary.value?.datasetName ?? 'Active dataset',
-        icon: '⌁',
+        meta: summary.value?.datasetName ?? "Active dataset",
+        icon: "⌁",
         danger: false,
         hasButton: false,
-        buttonLabel: '',
+        buttonLabel: "",
       },
     ],
 
     anomalyDetails: {
-      title: 'Anomaly Details',
-      columns: ['Timestamp', 'Level', 'Detection', 'Status'],
+      title: "Anomaly Details",
+      columns: ["Timestamp", "Level", "Detection", "Status"],
       rows: anomalies.value.slice(0, 4).map((item) => {
-        const dashboardStatus = getDashboardStatus(item.status)
+        const dashboardStatus = getDashboardStatus(item.status);
 
         return {
           timestamp: item.timestamp,
@@ -407,89 +440,106 @@ title: latest
           tagType: getDetectionType(item.anomalyType),
           status: dashboardStatus.label,
           statusType: dashboardStatus.type,
-        }
+        };
       }),
     },
 
     common: {
-      viewAll: 'View all',
+      viewAll: "View all",
     },
 
     current: {
-      label: 'Current Radiation Level',
+      label: "Current Radiation Level",
       value: formatNumber(currentLevel),
-      unit: 'µSv/h',
-      change: currentLevel > threshold ? 'Above threshold' : 'Within expected range',
-      source: summary.value?.datasetName ?? 'Dataset loading...',
-      datasetLabel: 'Dataset',
+      unit: "µSv/h",
+      change:
+        currentLevel > threshold ? "Above threshold" : "Within expected range",
+      source: summary.value?.datasetName ?? "Dataset loading...",
+      datasetLabel: "Dataset",
     },
 
     anomaliesLog: {
-      title: 'Anomalies Log',
+      title: "Anomalies Log",
       items: anomalies.value.slice(0, 5).map((item, index) => ({
         timestamp: item.timestamp,
         value: `${formatNumber(item.radiationLevel)} µSv/h`,
         status: item.status,
         statusType:
-        item.status === 'Critical'
-        ? 'critical'
-        : item.status === 'Warning'
-            ? 'warning'
-            : item.status === 'ML Anomaly'
-                ? 'ml-anomaly'
-                : 'normal',
+          item.status === "Critical"
+            ? "critical"
+            : item.status === "Warning"
+            ? "warning"
+            : item.status === "ML Anomaly"
+            ? "ml-anomaly"
+            : "normal",
         isNew: index < 2,
       })),
     },
 
     modelTesting: {
-      title: 'Model Testing',
+      title: "Model Testing",
       accuracyLabel: `${modelPanelName.value} · ${modelMetricLabel.value}`,
       accuracyValue: formatPercent(modelPanelScore.value),
-      progressWidth: `${Math.max(0, Math.min(100, modelPanelScore.value ?? 0))}%`,
+      progressWidth: `${Math.max(
+        0,
+        Math.min(100, modelPanelScore.value ?? 0)
+      )}%`,
       source: isUnsupervisedEvaluation.value
-          ? `Detected ${modelPanelDetectedAnomalies.value ?? 0} anomalies · Rate ${formatPercent(modelPanelAnomalyRate.value, 3)}`
-          : `Precision ${formatMetric(modelPanelPrecision.value)} · Recall ${formatMetric(modelPanelRecall.value)}`,
+        ? `Detected ${
+            modelPanelDetectedAnomalies.value ?? 0
+          } anomalies · Rate ${formatPercent(modelPanelAnomalyRate.value, 3)}`
+        : `Precision ${formatMetric(
+            modelPanelPrecision.value
+          )} · Recall ${formatMetric(modelPanelRecall.value)}`,
       action: isUnsupervisedEvaluation.value
-          ? `Training ${formatSeconds(modelPanelTrainingTime.value)}`
-          : `F1 ${formatMetric(modelPanelF1Score.value)} · ROC-AUC ${formatMetric(modelPanelRocAuc.value)}`,
+        ? `Training ${formatSeconds(modelPanelTrainingTime.value)}`
+        : `F1 ${formatMetric(modelPanelF1Score.value)} · ROC-AUC ${formatMetric(
+            modelPanelRocAuc.value
+          )}`,
       timing: isUnsupervisedEvaluation.value
-          ? `Prediction ${formatSeconds(modelPanelPredictionTime.value)}`
-          : `Training ${formatSeconds(modelPanelTrainingTime.value)} · Prediction ${formatSeconds(modelPanelPredictionTime.value)}`,
+        ? `Prediction ${formatSeconds(modelPanelPredictionTime.value)}`
+        : `Training ${formatSeconds(
+            modelPanelTrainingTime.value
+          )} · Prediction ${formatSeconds(modelPanelPredictionTime.value)}`,
       bars: modelBars.value,
       labels: modelBars.value.map((bar) => bar.label),
     },
-  }
-})
+  };
+});
 
 const loadDashboardData = async () => {
   try {
-    isLoading.value = true
-    errorMessage.value = ''
+    isLoading.value = true;
+    errorMessage.value = "";
 
-    const [measurementsResponse, anomaliesResponse, summaryResponse, modelInfoResponse] =
-        await Promise.all([
-          getMeasurements(1440),
-          getAnomalies(200),
-          getSummary(),
-          getModelInfo(),
-        ])
+    const [
+      measurementsResponse,
+      anomaliesResponse,
+      summaryResponse,
+      modelInfoResponse,
+    ] = await Promise.all([
+      getMeasurements(1440),
+      getAnomalies(200),
+      getSummary(),
+      getModelInfo(),
+    ]);
 
-    measurements.value = measurementsResponse
-    anomalies.value = anomaliesResponse
-    summary.value = summaryResponse
-    modelInfo.value = modelInfoResponse
+    measurements.value = measurementsResponse;
+    anomalies.value = anomaliesResponse;
+    summary.value = summaryResponse;
+    modelInfo.value = modelInfoResponse;
   } catch (error) {
-    console.error(error)
-    errorMessage.value = 'Backend data could not be loaded. Check if FastAPI is running.'
+    console.error(error);
+    errorMessage.value =
+      "Backend data could not be loaded. Check if FastAPI is running.";
   } finally {
-    isLoading.value = false
+    isLoading.value = false;
   }
-}
+};
 
 onMounted(() => {
-  loadDashboardData()
-})
+  loadDashboardData();
+});
 </script>
 
 <template>
@@ -525,21 +575,24 @@ onMounted(() => {
 
             <div class="chart-legend">
               <span>
-                <i class="legend legend--line"></i>{{ dashboardData.chart.legend.radiation }}
+                <i class="legend legend--line"></i
+                >{{ dashboardData.chart.legend.radiation }}
               </span>
               <span>
-                <i class="legend legend--dot"></i>{{ dashboardData.chart.legend.anomalies }}
+                <i class="legend legend--dot"></i
+                >{{ dashboardData.chart.legend.anomalies }}
               </span>
               <span>
-                <i class="legend legend--threshold"></i>{{ dashboardData.chart.legend.threshold }}
+                <i class="legend legend--threshold"></i
+                >{{ dashboardData.chart.legend.threshold }}
               </span>
             </div>
 
             <RadiationChart
-                :labels="chartLabels"
-                :values="chartValues"
-                :threshold="summary?.threshold ?? 0.18"
-                :anomaly-flags="chartAnomalyFlags"
+              :labels="chartLabels"
+              :values="chartValues"
+              :threshold="summary?.threshold ?? 0.18"
+              :anomaly-flags="chartAnomalyFlags"
             />
 
             <div v-if="showAlert" class="alert-panel">
@@ -550,7 +603,11 @@ onMounted(() => {
                 <p>{{ dashboardData.alert.description }}</p>
               </div>
 
-              <button class="ack-button" type="button" @click="acknowledgeAlert">
+              <button
+                class="ack-button"
+                type="button"
+                @click="acknowledgeAlert"
+              >
                 {{ dashboardData.alert.buttonLabel }}
               </button>
             </div>
@@ -558,10 +615,10 @@ onMounted(() => {
 
           <div class="stats-row">
             <div
-                v-for="stat in dashboardData.stats"
-                :key="stat.title"
-                class="stat-card"
-                :class="{ 'stat-card--danger': stat.danger }"
+              v-for="stat in dashboardData.stats"
+              :key="stat.title"
+              class="stat-card"
+              :class="{ 'stat-card--danger': stat.danger }"
             >
               <div class="stat-card__icon">{{ stat.icon }}</div>
               <div class="stat-card__content">
@@ -569,10 +626,10 @@ onMounted(() => {
                 <h3>{{ stat.value }}</h3>
                 <span v-if="stat.meta">{{ stat.meta }}</span>
                 <button
-                    v-if="stat.hasButton"
-                    class="mini-button"
-                    type="button"
-                    @click="openModelModal"
+                  v-if="stat.hasButton"
+                  class="mini-button"
+                  type="button"
+                  @click="openModelModal"
                 >
                   {{ stat.buttonLabel }}
                 </button>
@@ -587,34 +644,47 @@ onMounted(() => {
                 <h2>{{ dashboardData.anomalyDetails.title }}</h2>
               </div>
 
-              <button class="view-all-button view-all-button--small" type="button" @click="openLogModal">
+              <button
+                class="view-all-button view-all-button--small"
+                type="button"
+                @click="openLogModal"
+              >
                 {{ dashboardData.common.viewAll }}
               </button>
             </div>
 
             <div class="details-table">
               <div class="details-table__head">
-                <span v-for="column in dashboardData.anomalyDetails.columns" :key="column">
+                <span
+                  v-for="column in dashboardData.anomalyDetails.columns"
+                  :key="column"
+                >
                   {{ column }}
                 </span>
               </div>
 
               <div
-                  v-for="row in dashboardData.anomalyDetails.rows"
-                  :key="row.timestamp"
-                  class="details-row"
+                v-for="row in dashboardData.anomalyDetails.rows"
+                :key="row.timestamp"
+                class="details-row"
               >
                 <span>{{ row.timestamp }}</span>
                 <span class="accent-value">{{ row.level }}</span>
                 <span class="table-pill" :class="`table-pill--${row.tagType}`">
                   {{ row.tag }}
                 </span>
-                <span class="table-pill" :class="`table-pill--${row.statusType}`">
+                <span
+                  class="table-pill"
+                  :class="`table-pill--${row.statusType}`"
+                >
                   {{ row.status }}
                 </span>
               </div>
 
-              <div v-if="!dashboardData.anomalyDetails.rows.length" class="details-row">
+              <div
+                v-if="!dashboardData.anomalyDetails.rows.length"
+                class="details-row"
+              >
                 <span>No anomalies</span>
                 <span class="accent-value">—</span>
                 <span class="table-pill table-pill--normal">Normal</span>
@@ -626,7 +696,9 @@ onMounted(() => {
 
         <div class="right-column">
           <div class="glass-panel current-panel">
-            <p class="current-panel__label">{{ dashboardData.current.label }}</p>
+            <p class="current-panel__label">
+              {{ dashboardData.current.label }}
+            </p>
 
             <div class="current-panel__value">
               <span class="sparkle">✦</span>
@@ -634,7 +706,9 @@ onMounted(() => {
               <span>{{ dashboardData.current.unit }}</span>
             </div>
 
-            <p class="current-panel__change">{{ dashboardData.current.change }}</p>
+            <p class="current-panel__change">
+              {{ dashboardData.current.change }}
+            </p>
 
             <div class="current-panel__footer">
               <span class="current-panel__dataset-name">
@@ -652,9 +726,9 @@ onMounted(() => {
 
             <div class="log-list">
               <div
-                  v-for="item in dashboardData.anomaliesLog.items"
-                  :key="item.timestamp"
-                  class="log-item"
+                v-for="item in dashboardData.anomaliesLog.items"
+                :key="item.timestamp"
+                class="log-item"
               >
                 <div class="log-item__dot"></div>
 
@@ -666,7 +740,10 @@ onMounted(() => {
                 <span v-if="item.isNew" class="log-item__tag">NEW</span>
               </div>
 
-              <div v-if="!dashboardData.anomaliesLog.items.length" class="log-item">
+              <div
+                v-if="!dashboardData.anomaliesLog.items.length"
+                class="log-item"
+              >
                 <div class="log-item__dot"></div>
                 <div class="log-item__content">
                   <p>No anomalies detected</p>
@@ -675,7 +752,11 @@ onMounted(() => {
               </div>
             </div>
 
-            <button class="view-all-button view-all-button--full" type="button" @click="openLogModal">
+            <button
+              class="view-all-button view-all-button--full"
+              type="button"
+              @click="openLogModal"
+            >
               {{ dashboardData.common.viewAll }}
             </button>
           </div>
@@ -690,8 +771,8 @@ onMounted(() => {
 
             <div class="progress-bar">
               <div
-                  class="progress-bar__fill"
-                  :style="{ width: dashboardData.modelTesting.progressWidth }"
+                class="progress-bar__fill"
+                :style="{ width: dashboardData.modelTesting.progressWidth }"
               ></div>
             </div>
 
@@ -704,34 +785,44 @@ onMounted(() => {
               {{ dashboardData.modelTesting.timing }}
             </div>
 
-            <div v-if="dashboardData.modelTesting.bars.length" class="mini-bars">
+            <div
+              v-if="dashboardData.modelTesting.bars.length"
+              class="mini-bars"
+            >
               <div
-                  v-for="bar in dashboardData.modelTesting.bars"
-                  :key="bar.label"
-                  class="mini-bars__item"
+                v-for="bar in dashboardData.modelTesting.bars"
+                :key="bar.label"
+                class="mini-bars__item"
               >
                 <span class="mini-bars__percent">{{ bar.percent }}</span>
                 <div
-                    class="mini-bars__bar"
-                    :class="{
+                  class="mini-bars__bar"
+                  :class="{
                     'mini-bars__bar--large': bar.active,
                     'mini-bars__bar--pending': bar.pending,
                   }"
-                    :style="{ height: bar.height }"
+                  :style="{ height: bar.height }"
                 ></div>
               </div>
             </div>
 
-            <div v-if="dashboardData.modelTesting.labels.length" class="mini-bars__labels">
+            <div
+              v-if="dashboardData.modelTesting.labels.length"
+              class="mini-bars__labels"
+            >
               <span
-                  v-for="label in dashboardData.modelTesting.labels"
-                  :key="label"
+                v-for="label in dashboardData.modelTesting.labels"
+                :key="label"
               >
                 {{ label }}
               </span>
             </div>
 
-            <button class="view-all-button view-all-button--full" type="button" @click="openModelModal">
+            <button
+              class="view-all-button view-all-button--full"
+              type="button"
+              @click="openModelModal"
+            >
               {{ dashboardData.common.viewAll }}
             </button>
           </div>
@@ -739,9 +830,9 @@ onMounted(() => {
       </section>
 
       <ModelTestingModal
-          :is-open="isModelModalOpen"
-          @close="closeModelModal"
-          @updated="updateModelInfoFromModal"
+        :is-open="isModelModalOpen"
+        @close="closeModelModal"
+        @updated="updateModelInfoFromModal"
       />
       <AnomaliesLogModal :is-open="isLogModalOpen" @close="closeLogModal" />
     </div>
@@ -762,12 +853,14 @@ onMounted(() => {
   overflow: hidden;
   border-radius: 22px;
   border: 1px solid rgba(120, 151, 235, 0.12);
-  background:
-      radial-gradient(circle at top right, rgba(76, 111, 255, 0.08), transparent 30%),
-      linear-gradient(180deg, rgba(12, 18, 35, 0.88), rgba(9, 14, 28, 0.96));
-  box-shadow:
-      0 10px 36px rgba(0, 0, 0, 0.22),
-      inset 0 1px 0 rgba(255, 255, 255, 0.02);
+  background: radial-gradient(
+      circle at top right,
+      rgba(76, 111, 255, 0.08),
+      transparent 30%
+    ),
+    linear-gradient(180deg, rgba(12, 18, 35, 0.88), rgba(9, 14, 28, 0.96));
+  box-shadow: 0 10px 36px rgba(0, 0, 0, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.02);
   backdrop-filter: blur(14px);
 }
 
@@ -801,12 +894,31 @@ onMounted(() => {
 .hero-panel__stars {
   position: absolute;
   inset: 0;
-  background-image:
-      radial-gradient(1px 1px at 30px 20px, rgba(255, 255, 255, 0.28), transparent),
-      radial-gradient(1px 1px at 80px 55px, rgba(255, 255, 255, 0.16), transparent),
-      radial-gradient(1px 1px at 160px 36px, rgba(255, 255, 255, 0.18), transparent),
-      radial-gradient(1px 1px at 250px 70px, rgba(255, 255, 255, 0.12), transparent),
-      radial-gradient(1px 1px at 340px 30px, rgba(255, 255, 255, 0.22), transparent);
+  background-image: radial-gradient(
+      1px 1px at 30px 20px,
+      rgba(255, 255, 255, 0.28),
+      transparent
+    ),
+    radial-gradient(
+      1px 1px at 80px 55px,
+      rgba(255, 255, 255, 0.16),
+      transparent
+    ),
+    radial-gradient(
+      1px 1px at 160px 36px,
+      rgba(255, 255, 255, 0.18),
+      transparent
+    ),
+    radial-gradient(
+      1px 1px at 250px 70px,
+      rgba(255, 255, 255, 0.12),
+      transparent
+    ),
+    radial-gradient(
+      1px 1px at 340px 30px,
+      rgba(255, 255, 255, 0.22),
+      transparent
+    );
   opacity: 0.3;
 }
 
@@ -843,7 +955,11 @@ onMounted(() => {
   width: 130px;
   height: 130px;
   transform: translateY(-50%);
-  background: radial-gradient(circle, rgba(113, 224, 255, 0.42), transparent 66%);
+  background: radial-gradient(
+    circle,
+    rgba(113, 224, 255, 0.42),
+    transparent 66%
+  );
   filter: blur(16px);
 }
 
@@ -917,16 +1033,18 @@ onMounted(() => {
   min-height: 104px;
   border-radius: 18px;
   border: 1px solid rgba(255, 92, 117, 0.22);
-  background:
-      radial-gradient(circle at 12% 100%, rgba(255, 74, 106, 0.16), transparent 28%),
-      linear-gradient(180deg, rgba(104, 24, 33, 0.64), rgba(57, 13, 20, 0.62));
+  background: radial-gradient(
+      circle at 12% 100%,
+      rgba(255, 74, 106, 0.16),
+      transparent 28%
+    ),
+    linear-gradient(180deg, rgba(104, 24, 33, 0.64), rgba(57, 13, 20, 0.62));
   display: flex;
   align-items: center;
   gap: 18px;
   padding: 16px 18px;
-  box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.04),
-      0 10px 22px rgba(92, 14, 26, 0.22);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 10px 22px rgba(92, 14, 26, 0.22);
 }
 
 .alert-panel__icon {
@@ -977,7 +1095,11 @@ onMounted(() => {
   height: 42px;
   min-width: 136px;
   padding: 0 16px;
-  background: linear-gradient(180deg, rgba(255, 106, 128, 0.96), rgba(217, 56, 84, 0.96));
+  background: linear-gradient(
+    180deg,
+    rgba(255, 106, 128, 0.96),
+    rgba(217, 56, 84, 0.96)
+  );
   border: 1px solid rgba(255, 170, 185, 0.24);
   color: #fff7f8;
   font-size: 12px;
@@ -1000,9 +1122,12 @@ onMounted(() => {
 }
 
 .stat-card--danger {
-  background:
-      radial-gradient(circle at 10% 100%, rgba(255, 97, 97, 0.2), transparent 34%),
-      linear-gradient(180deg, rgba(12, 18, 35, 0.88), rgba(9, 14, 28, 0.96));
+  background: radial-gradient(
+      circle at 10% 100%,
+      rgba(255, 97, 97, 0.2),
+      transparent 34%
+    ),
+    linear-gradient(180deg, rgba(12, 18, 35, 0.88), rgba(9, 14, 28, 0.96));
 }
 
 .stat-card__icon {
@@ -1048,7 +1173,11 @@ onMounted(() => {
 
 .csv-button {
   min-width: 74px;
-  background: linear-gradient(180deg, rgba(255, 193, 94, 0.92), rgba(224, 153, 54, 0.92));
+  background: linear-gradient(
+    180deg,
+    rgba(255, 193, 94, 0.92),
+    rgba(224, 153, 54, 0.92)
+  );
   border-color: rgba(255, 208, 132, 0.24);
   color: #2c1f10;
   font-weight: 800;
@@ -1137,37 +1266,61 @@ onMounted(() => {
 }
 
 .table-pill--alert {
-  background: linear-gradient(180deg, rgba(255, 104, 126, 0.2), rgba(217, 56, 84, 0.18));
+  background: linear-gradient(
+    180deg,
+    rgba(255, 104, 126, 0.2),
+    rgba(217, 56, 84, 0.18)
+  );
   color: #ffdbe2;
   border: 1px solid rgba(255, 132, 152, 0.18);
 }
 
 .table-pill--critical {
-  background: linear-gradient(180deg, rgba(255, 104, 126, 0.24), rgba(217, 56, 84, 0.22));
+  background: linear-gradient(
+    180deg,
+    rgba(255, 104, 126, 0.24),
+    rgba(217, 56, 84, 0.22)
+  );
   color: #ffdbe2;
   border: 1px solid rgba(255, 132, 152, 0.22);
 }
 
 .table-pill--warning {
-  background: linear-gradient(180deg, rgba(222, 169, 84, 0.24), rgba(224, 153, 54, 0.22));
+  background: linear-gradient(
+    180deg,
+    rgba(222, 169, 84, 0.24),
+    rgba(224, 153, 54, 0.22)
+  );
   color: #ffe6bd;
   border: 1px solid rgba(255, 208, 132, 0.24);
 }
 
 .table-pill--ml-anomaly {
-  background: linear-gradient(180deg, rgba(121, 140, 220, 0.22), rgba(72, 91, 160, 0.2));
+  background: linear-gradient(
+    180deg,
+    rgba(121, 140, 220, 0.22),
+    rgba(72, 91, 160, 0.2)
+  );
   color: #d7e4ff;
   border: 1px solid rgba(120, 151, 235, 0.24);
 }
 
 .table-pill--detected {
-  background: linear-gradient(180deg, rgba(121, 140, 220, 0.22), rgba(72, 91, 160, 0.2));
+  background: linear-gradient(
+    180deg,
+    rgba(121, 140, 220, 0.22),
+    rgba(72, 91, 160, 0.2)
+  );
   color: #d7e4ff;
   border: 1px solid rgba(120, 151, 235, 0.24);
 }
 
 .table-pill--normal {
-  background: linear-gradient(180deg, rgba(118, 237, 191, 0.24), rgba(61, 182, 130, 0.22));
+  background: linear-gradient(
+    180deg,
+    rgba(118, 237, 191, 0.24),
+    rgba(61, 182, 130, 0.22)
+  );
   color: #d8fff0;
   border: 1px solid rgba(118, 237, 191, 0.28);
 }
@@ -1295,7 +1448,11 @@ onMounted(() => {
   min-width: 42px;
   height: 22px;
   border-radius: 999px;
-  background: linear-gradient(180deg, rgba(255, 104, 126, 0.18), rgba(217, 56, 84, 0.16));
+  background: linear-gradient(
+    180deg,
+    rgba(255, 104, 126, 0.18),
+    rgba(217, 56, 84, 0.16)
+  );
   color: #ffd7df;
   border: 1px solid rgba(255, 132, 152, 0.16);
   display: grid;
@@ -1393,7 +1550,11 @@ onMounted(() => {
 .mini-bars__bar {
   width: 30px;
   border-radius: 10px 10px 0 0;
-  background: linear-gradient(180deg, rgba(238, 238, 245, 0.92), rgba(163, 171, 197, 0.9));
+  background: linear-gradient(
+    180deg,
+    rgba(238, 238, 245, 0.92),
+    rgba(163, 171, 197, 0.9)
+  );
   box-shadow: 0 0 10px rgba(255, 255, 255, 0.06);
 }
 
@@ -1403,7 +1564,11 @@ onMounted(() => {
 }
 
 .mini-bars__bar--pending {
-  background: linear-gradient(180deg, rgba(142, 165, 210, 0.35), rgba(142, 165, 210, 0.16));
+  background: linear-gradient(
+    180deg,
+    rgba(142, 165, 210, 0.35),
+    rgba(142, 165, 210, 0.16)
+  );
   border: 1px dashed rgba(142, 165, 210, 0.3);
   box-shadow: none;
 }

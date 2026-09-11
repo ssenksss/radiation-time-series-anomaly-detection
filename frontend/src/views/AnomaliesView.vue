@@ -1,258 +1,270 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
-import MainLayout from '../layouts/MainLayout.vue'
-import RadiationChart from '../components/RadiationChart.vue'
-import { getAnomalies, getMeasurements, getSummary } from '../services/api'
-import type { Measurement, Summary } from '../types/api'
+import { computed, onMounted, ref } from "vue";
+import { useRouter } from "vue-router";
+import MainLayout from "../layouts/MainLayout.vue";
+import RadiationChart from "../components/RadiationChart.vue";
+import { getAnomalies, getMeasurements, getSummary } from "../services/api";
+import type { Measurement, Summary } from "../types/api";
 
-const router = useRouter()
+const router = useRouter();
 
-const MAX_CHART_POINTS = 500
-const RANGE_TOLERANCE_MS = 15 * 60 * 1000
+const MAX_CHART_POINTS = 500;
+const RANGE_TOLERANCE_MS = 15 * 60 * 1000;
 
-const period = ref('Month')
-const quickRange = ref('All')
-const selectedStatus = ref('All statuses')
-const searchQuery = ref('')
-const fromDate = ref('')
-const toDate = ref('')
-const rangeUnavailableMessage = ref('')
+const period = ref("Month");
+const quickRange = ref("All");
+const selectedStatus = ref("All statuses");
+const searchQuery = ref("");
+const fromDate = ref("");
+const toDate = ref("");
+const rangeUnavailableMessage = ref("");
 
-const backendMeasurements = ref<Measurement[]>([])
-const backendAnomalies = ref<Measurement[]>([])
-const summary = ref<Summary | null>(null)
+const backendMeasurements = ref<Measurement[]>([]);
+const backendAnomalies = ref<Measurement[]>([]);
+const summary = ref<Summary | null>(null);
 
-const isLoading = ref(true)
-const errorMessage = ref('')
+const isLoading = ref(true);
+const errorMessage = ref("");
 
 function formatNumber(value: number | null | undefined) {
-  if (value === null || value === undefined) return '0.0000'
+  if (value === null || value === undefined) return "0.0000";
 
-  return Number(value).toFixed(4)
+  return Number(value).toFixed(4);
 }
 
 function parseTimestamp(timestamp: string) {
-  return new Date(timestamp.replace(' ', 'T'))
+  return new Date(timestamp.replace(" ", "T"));
 }
 
 function formatAnomalyType(type: string | null | undefined) {
-  if (!type) return 'Normal'
+  if (!type) return "Normal";
 
-  const normalizedType = type.toLowerCase().replaceAll(' ', '_')
+  const normalizedType = type.toLowerCase().replaceAll(" ", "_");
 
   const labels: Record<string, string> = {
-  normal: 'Normal',
-  warning: 'Warning',
-  critical: 'Critical',
-  ml_anomaly: 'ML Anomaly',
+    normal: "Normal",
+    warning: "Warning",
+    critical: "Critical",
+    ml_anomaly: "ML Anomaly",
 
-  threshold_detection: 'Warning',
-  model_detection: 'ML Anomaly',
-  ml_detected: 'ML Anomaly',
+    threshold_detection: "Warning",
+    model_detection: "ML Anomaly",
+    ml_detected: "ML Anomaly",
 
-  spike: 'Critical',
-  sustained_increase: 'Warning',
-  sensor_drop: 'Warning',
-}
+    spike: "Critical",
+    sustained_increase: "Warning",
+    sensor_drop: "Warning",
+  };
 
-  return labels[normalizedType] ?? normalizedType.replaceAll('_', ' ')
+  return labels[normalizedType] ?? normalizedType.replaceAll("_", " ");
 }
 
 function getStatusType(status: string | null | undefined) {
-  if (status === 'Critical') return 'critical'
-  if (status === 'Warning') return 'warning'
-  if (status === 'ML Anomaly') return 'ml-anomaly'
-  if (status === 'Normal') return 'normal'
+  if (status === "Critical") return "critical";
+  if (status === "Warning") return "warning";
+  if (status === "ML Anomaly") return "ml-anomaly";
+  if (status === "Normal") return "normal";
 
-  return 'normal'
+  return "normal";
 }
 
 function getQuickRangeMs(range: string) {
-  if (range === '24h') return 24 * 60 * 60 * 1000
-  if (range === '1W') return 7 * 24 * 60 * 60 * 1000
-  if (range === '14d') return 14 * 24 * 60 * 60 * 1000
+  if (range === "24h") return 24 * 60 * 60 * 1000;
+  if (range === "1W") return 7 * 24 * 60 * 60 * 1000;
+  if (range === "14d") return 14 * 24 * 60 * 60 * 1000;
 
-  return 0
+  return 0;
 }
 
 function formatDuration(milliseconds: number) {
-  const totalMinutes = Math.max(Math.floor(milliseconds / (1000 * 60)), 1)
-  const totalHours = Math.floor(totalMinutes / 60)
-  const days = Math.floor(totalHours / 24)
-  const hours = totalHours % 24
+  const totalMinutes = Math.max(Math.floor(milliseconds / (1000 * 60)), 1);
+  const totalHours = Math.floor(totalMinutes / 60);
+  const days = Math.floor(totalHours / 24);
+  const hours = totalHours % 24;
 
   if (days > 0 && hours > 0) {
-    return `${days}d ${hours}h`
+    return `${days}d ${hours}h`;
   }
 
   if (days > 0) {
-    return `${days}d`
+    return `${days}d`;
   }
 
   if (totalHours > 0) {
-    return `${totalHours}h`
+    return `${totalHours}h`;
   }
 
-  return `${totalMinutes}min`
+  return `${totalMinutes}min`;
 }
 
 function hasCustomDateRange() {
-  return Boolean(fromDate.value || toDate.value)
+  return Boolean(fromDate.value || toDate.value);
 }
 
 function isInsideDateRange(timestamp: string) {
-  const itemDate = parseTimestamp(timestamp)
+  const itemDate = parseTimestamp(timestamp);
 
   if (Number.isNaN(itemDate.getTime())) {
-    return true
+    return true;
   }
 
   if (fromDate.value) {
-    const startDate = new Date(`${fromDate.value}T00:00:00`)
+    const startDate = new Date(`${fromDate.value}T00:00:00`);
 
     if (itemDate < startDate) {
-      return false
+      return false;
     }
   }
 
   if (toDate.value) {
-    const endDate = new Date(`${toDate.value}T23:59:59`)
+    const endDate = new Date(`${toDate.value}T23:59:59`);
 
     if (itemDate > endDate) {
-      return false
+      return false;
     }
   }
 
-  return true
+  return true;
 }
 
 function reduceChartPoints(rows: Measurement[]) {
   if (rows.length <= MAX_CHART_POINTS) {
-    return rows
+    return rows;
   }
 
-  const step = Math.ceil(rows.length / MAX_CHART_POINTS)
+  const step = Math.ceil(rows.length / MAX_CHART_POINTS);
 
   return rows.filter((_, index) => {
-    return index % step === 0 || index === rows.length - 1
-  })
+    return index % step === 0 || index === rows.length - 1;
+  });
 }
 
 const activeThreshold = computed(() => {
-  return summary.value?.threshold ?? 0.18
-})
+  return summary.value?.threshold ?? 0.18;
+});
 
 const allMeasurements = computed(() => {
-  return backendMeasurements.value
-})
+  return backendMeasurements.value;
+});
 
 const allAnomalies = computed(() => {
-  return backendAnomalies.value
-})
+  return backendAnomalies.value;
+});
 
 const activeDatasetName = computed(() => {
-  return summary.value?.datasetName ?? 'Dataset loading...'
-})
+  return summary.value?.datasetName ?? "Dataset loading...";
+});
 
 const datasetTimeRange = computed(() => {
   const timestamps = allMeasurements.value
-      .map((item) => parseTimestamp(item.timestamp))
-      .filter((date) => !Number.isNaN(date.getTime()))
-      .sort((a, b) => a.getTime() - b.getTime())
+    .map((item) => parseTimestamp(item.timestamp))
+    .filter((date) => !Number.isNaN(date.getTime()))
+    .sort((a, b) => a.getTime() - b.getTime());
 
   if (!timestamps.length) {
-    return null
+    return null;
   }
 
-  const start = timestamps[0]
-  const end = timestamps[timestamps.length - 1]
-  const durationMs = Math.max(end.getTime() - start.getTime(), 0)
+  const start = timestamps[0];
+  const end = timestamps[timestamps.length - 1];
+  const durationMs = Math.max(end.getTime() - start.getTime(), 0);
 
   return {
     start,
     end,
     durationMs,
     label: formatDuration(durationMs),
-  }
-})
+  };
+});
+function formatDate(value: string) {
+  if (!value) return "";
 
+  const date = new Date(value);
+
+  return date.toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
 function isInsideSelectedTimeRange(timestamp: string) {
   if (hasCustomDateRange()) {
-    return isInsideDateRange(timestamp)
+    return isInsideDateRange(timestamp);
   }
 
-  if (quickRange.value === 'All') {
-    return true
+  if (quickRange.value === "All") {
+    return true;
   }
 
-  const datasetRange = datasetTimeRange.value
+  const datasetRange = datasetTimeRange.value;
 
   if (!datasetRange) {
-    return true
+    return true;
   }
 
-  const selectedRangeMs = getQuickRangeMs(quickRange.value)
+  const selectedRangeMs = getQuickRangeMs(quickRange.value);
 
   if (!selectedRangeMs) {
-    return true
+    return true;
   }
 
-  const rangeStart = new Date(datasetRange.end)
-  rangeStart.setTime(datasetRange.end.getTime() - selectedRangeMs)
+  const rangeStart = new Date(datasetRange.end);
+  rangeStart.setTime(datasetRange.end.getTime() - selectedRangeMs);
 
-  const itemTimestamp = parseTimestamp(timestamp)
+  const itemTimestamp = parseTimestamp(timestamp);
 
   if (Number.isNaN(itemTimestamp.getTime())) {
-    return true
+    return true;
   }
 
-  return itemTimestamp >= rangeStart
+  return itemTimestamp >= rangeStart;
 }
 
 const rangeFilteredMeasurements = computed(() =>
-    allMeasurements.value.filter((item) => isInsideSelectedTimeRange(item.timestamp)),
-)
+  allMeasurements.value.filter((item) =>
+    isInsideSelectedTimeRange(item.timestamp)
+  )
+);
 
 const chartWarning = computed(() => {
   if (rangeUnavailableMessage.value) {
-    return rangeUnavailableMessage.value
+    return rangeUnavailableMessage.value;
   }
 
   if (
-      hasCustomDateRange() &&
-      allMeasurements.value.length > 0 &&
-      rangeFilteredMeasurements.value.length === 0
+    hasCustomDateRange() &&
+    allMeasurements.value.length > 0 &&
+    rangeFilteredMeasurements.value.length === 0
   ) {
-    return 'No chart data found for selected date range. Showing full available dataset.'
+    return "No chart data found for selected date range. Showing full available dataset.";
   }
 
-  return ''
-})
+  return "";
+});
 
 const chartMeasurements = computed(() => {
   const selectedRows = rangeFilteredMeasurements.value.length
-      ? rangeFilteredMeasurements.value
-      : allMeasurements.value
+    ? rangeFilteredMeasurements.value
+    : allMeasurements.value;
 
-  return reduceChartPoints(selectedRows)
-})
+  return reduceChartPoints(selectedRows);
+});
 
 const chartLabels = computed(() =>
-    chartMeasurements.value.map((item) => item.timestamp),
-)
+  chartMeasurements.value.map((item) => item.timestamp)
+);
 
 const chartValues = computed(() =>
-    chartMeasurements.value.map((item) => item.radiationLevel),
-)
+  chartMeasurements.value.map((item) => item.radiationLevel)
+);
 
 const chartAnomalyFlags = computed(() =>
-    chartMeasurements.value.map((item) => item.isAnomaly),
-)
+  chartMeasurements.value.map((item) => item.isAnomaly)
+);
 
 const chartRenderKey = computed(() => {
-  const firstLabel = chartLabels.value[0] ?? 'empty'
-  const lastLabel = chartLabels.value[chartLabels.value.length - 1] ?? 'empty'
+  const firstLabel = chartLabels.value[0] ?? "empty";
+  const lastLabel = chartLabels.value[chartLabels.value.length - 1] ?? "empty";
 
   return [
     activeDatasetName.value,
@@ -262,138 +274,140 @@ const chartRenderKey = computed(() => {
     chartValues.value.length,
     firstLabel,
     lastLabel,
-  ].join('-')
-})
+  ].join("-");
+});
 
 const filteredAnomalies = computed(() => {
-  const query = searchQuery.value.trim().toLowerCase()
+  const query = searchQuery.value.trim().toLowerCase();
 
   return allAnomalies.value.filter((item) => {
     const statusMatches =
-        selectedStatus.value === 'All statuses' ||
-        item.status.toLowerCase() === selectedStatus.value.toLowerCase()
+      selectedStatus.value === "All statuses" ||
+      item.status.toLowerCase() === selectedStatus.value.toLowerCase();
 
-    const dateMatches = isInsideSelectedTimeRange(item.timestamp)
+    const dateMatches = isInsideSelectedTimeRange(item.timestamp);
 
     const queryMatches =
-        !query ||
-        [
-          item.timestamp,
-          item.location,
-          item.sensorId,
-          item.status,
-          item.anomalyType,
-          formatAnomalyType(item.anomalyType),
-          String(item.radiationLevel),
-          String(item.anomalyScore),
-        ]
-            .join(' ')
-            .toLowerCase()
-            .includes(query)
+      !query ||
+      [
+        item.timestamp,
+        item.location,
+        item.sensorId,
+        item.status,
+        item.anomalyType,
+        formatAnomalyType(item.anomalyType),
+        String(item.radiationLevel),
+        String(item.anomalyScore),
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(query);
 
-    return statusMatches && dateMatches && queryMatches
-  })
-})
+    return statusMatches && dateMatches && queryMatches;
+  });
+});
 
 const anomalyRowsTop = computed(() =>
-    filteredAnomalies.value.slice(0, 2).map((item) => ({
-      timestamp: item.timestamp,
-      level: `${formatNumber(item.radiationLevel)} µSv/h`,
-      status: item.status,
-      statusType: getStatusType(item.status),
-      scoreLeft: 'Score',
-      scoreRight: Number(item.anomalyScore ?? 0).toFixed(2),
-    })),
-)
+  filteredAnomalies.value.slice(0, 2).map((item) => ({
+    timestamp: item.timestamp,
+    level: `${formatNumber(item.radiationLevel)} µSv/h`,
+    status: item.status,
+    statusType: getStatusType(item.status),
+    scoreLeft: "Score",
+    scoreRight: Number(item.anomalyScore ?? 0).toFixed(2),
+  }))
+);
 
 const anomalyRowsOverview = computed(() =>
-    filteredAnomalies.value.map((item) => ({
-      timestamp: item.timestamp,
-      level: `${formatNumber(item.radiationLevel)} µSv/h`,
-      score: Number(item.anomalyScore ?? 0).toFixed(2),
-      status: item.status,
-      statusType: getStatusType(item.status),
-    })),
-)
+  filteredAnomalies.value.map((item) => ({
+    timestamp: item.timestamp,
+    level: `${formatNumber(item.radiationLevel)} µSv/h`,
+    score: Number(item.anomalyScore ?? 0).toFixed(2),
+    status: item.status,
+    statusType: getStatusType(item.status),
+  }))
+);
 
-const totalEventsLabel = computed(() =>
-    `${filteredAnomalies.value.length} Total Events`,
-)
+const totalEventsLabel = computed(
+  () => `${filteredAnomalies.value.length} Total Events`
+);
 
 const dateRangeLabel = computed(() => {
   if (fromDate.value || toDate.value) {
-    return `${fromDate.value || 'Start'} → ${toDate.value || 'End'}`
+    return `${fromDate.value || "Start"} → ${toDate.value || "End"}`;
   }
 
-  return quickRange.value
-})
+  return quickRange.value;
+});
 
 function setQuickRange(range: string) {
-  fromDate.value = ''
-  toDate.value = ''
+  fromDate.value = "";
+  toDate.value = "";
 
-  if (range === 'All') {
-    quickRange.value = 'All'
-    rangeUnavailableMessage.value = ''
-    return
+  if (range === "All") {
+    quickRange.value = "All";
+    rangeUnavailableMessage.value = "";
+    return;
   }
 
-  const selectedRangeMs = getQuickRangeMs(range)
-  const datasetRange = datasetTimeRange.value
+  const selectedRangeMs = getQuickRangeMs(range);
+  const datasetRange = datasetTimeRange.value;
 
   if (
-      selectedRangeMs > 0 &&
-      datasetRange &&
-      datasetRange.durationMs + RANGE_TOLERANCE_MS < selectedRangeMs
+    selectedRangeMs > 0 &&
+    datasetRange &&
+    datasetRange.durationMs + RANGE_TOLERANCE_MS < selectedRangeMs
   ) {
-    rangeUnavailableMessage.value = `Dataset contains only ${datasetRange.label}, so ${range} range is not available.`
-    return
+    rangeUnavailableMessage.value = `Dataset contains only ${datasetRange.label}, so ${range} range is not available.`;
+    return;
   }
 
-  quickRange.value = range
-  rangeUnavailableMessage.value = ''
+  quickRange.value = range;
+  rangeUnavailableMessage.value = "";
 }
 
 function applyCustomDateRange() {
-  quickRange.value = 'Custom'
-  rangeUnavailableMessage.value = ''
+  quickRange.value = "Custom";
+  rangeUnavailableMessage.value = "";
 }
 
 const resetFilters = () => {
-  period.value = 'Month'
-  quickRange.value = 'All'
-  selectedStatus.value = 'All statuses'
-  searchQuery.value = ''
-  fromDate.value = ''
-  toDate.value = ''
-  rangeUnavailableMessage.value = ''
-}
+  period.value = "Month";
+  quickRange.value = "All";
+  selectedStatus.value = "All statuses";
+  searchQuery.value = "";
+  fromDate.value = "";
+  toDate.value = "";
+  rangeUnavailableMessage.value = "";
+};
 
 async function loadAnomaliesPage() {
   try {
-    isLoading.value = true
-    errorMessage.value = ''
+    isLoading.value = true;
+    errorMessage.value = "";
 
-    const [measurementsResponse, anomaliesResponse, summaryResponse] = await Promise.all([
-      getMeasurements(10000),
-      getAnomalies(500),
-      getSummary(),
-    ])
+    const [measurementsResponse, anomaliesResponse, summaryResponse] =
+      await Promise.all([
+        getMeasurements(10000),
+        getAnomalies(500),
+        getSummary(),
+      ]);
 
-    backendMeasurements.value = measurementsResponse
-    backendAnomalies.value = anomaliesResponse
-    summary.value = summaryResponse
+    backendMeasurements.value = measurementsResponse;
+    backendAnomalies.value = anomaliesResponse;
+    summary.value = summaryResponse;
   } catch (error) {
-    console.error(error)
-    errorMessage.value = 'Backend data could not be loaded. Check if FastAPI is running.'
+    console.error(error);
+    errorMessage.value =
+      "Backend data could not be loaded. Check if FastAPI is running.";
   } finally {
-    isLoading.value = false
+    isLoading.value = false;
   }
 }
 
 onMounted(() => {
-  loadAnomaliesPage()
-})
+  loadAnomaliesPage();
+});
 </script>
 
 <template>
@@ -406,75 +420,78 @@ onMounted(() => {
           <button class="tool-button tool-button--active">{{ period }}</button>
 
           <label
-              class="date-trigger"
-              :class="{ 'date-trigger--selected': fromDate }"
+            class="date-trigger"
+            :class="{ 'date-trigger--selected': fromDate }"
           >
-            <span>{{ fromDate || 'From Date' }}</span>
+            <span>{{ formatDate(fromDate) || "From Date" }}</span>
+
             <input
-                v-model="fromDate"
-                class="date-trigger__input"
-                type="date"
-                @change="applyCustomDateRange"
+              v-model="fromDate"
+              class="date-trigger__input"
+              type="date"
+              @change="applyCustomDateRange"
             />
           </label>
 
           <label
-              class="date-trigger"
-              :class="{ 'date-trigger--selected': toDate }"
+            class="date-trigger"
+            :class="{ 'date-trigger--selected': toDate }"
           >
-            <span>{{ toDate || 'To Date' }}</span>
+            <span>{{ formatDate(toDate) || "To Date" }}</span>
             <input
-                v-model="toDate"
-                class="date-trigger__input"
-                type="date"
-                @change="applyCustomDateRange"
+              v-model="toDate"
+              class="date-trigger__input"
+              type="date"
+              @change="applyCustomDateRange"
             />
           </label>
 
-          <button class="tool-button tool-button--ghost" @click="resetFilters">Reset</button>
+          <button class="tool-button tool-button--ghost" @click="resetFilters">
+            Reset
+          </button>
         </div>
 
         <div class="search-row">
           <input
-              v-model="searchQuery"
-              class="search-box"
-              placeholder="Search anomalies"
-              type="search"
+            v-model="searchQuery"
+            class="search-box"
+            placeholder="Search anomalies"
+            type="search"
           />
 
           <div class="chips">
             <button
-                class="chip"
-                :class="{ 'chip--active': selectedStatus === 'Critical' }"
-                type="button"
-                @click="selectedStatus = 'Critical'"
+              class="chip"
+              :class="{ 'chip--active': selectedStatus === 'Critical' }"
+              type="button"
+              @click="selectedStatus = 'Critical'"
             >
               Critical
             </button>
 
             <button
-                class="chip"
-                :class="{ 'chip--active': selectedStatus === 'Warning' }"
-                type="button"
-                @click="selectedStatus = 'Warning'"
+              class="chip"
+              :class="{ 'chip--active': selectedStatus === 'Warning' }"
+              type="button"
+              @click="selectedStatus = 'Warning'"
             >
               Warning
             </button>
 
             <button
-                class="chip"
-                :class="{ 'chip--active': selectedStatus === 'ML Anomaly' }"
-                type="button"
-                @click="selectedStatus = 'ML Anomaly'"
+              class="chip"
+              :class="{ 'chip--active': selectedStatus === 'ML Anomaly' }"
+              type="button"
+              @click="selectedStatus = 'ML Anomaly'"
             >
               ML Anomaly
             </button>
 
             <button
-                class="chip"
-                :class="{ 'chip--active': selectedStatus === 'All statuses' }"
-                type="button"
-                @click="selectedStatus = 'All statuses'"
+              class="chip"
+              :class="{ 'chip--active': selectedStatus === 'All statuses' }"
+              type="button"
+              @click="selectedStatus = 'All statuses'"
             >
               All
             </button>
@@ -484,7 +501,12 @@ onMounted(() => {
             <span>Source:</span>
             <span class="source-dot"></span>
             <strong>{{ activeDatasetName }}</strong>
-            <button class="tool-button tool-button--small" @click="router.push('/dataset')">View</button>
+            <button
+              class="tool-button tool-button--small"
+              @click="router.push('/dataset')"
+            >
+              View
+            </button>
           </div>
         </div>
 
@@ -504,7 +526,11 @@ onMounted(() => {
             <span>Anomaly Score</span>
           </div>
 
-          <div v-for="row in anomalyRowsTop" :key="row.timestamp" class="table-row">
+          <div
+            v-for="row in anomalyRowsTop"
+            :key="row.timestamp"
+            class="table-row"
+          >
             <span class="cell-timestamp">
               <i class="row-dot"></i>
               {{ row.timestamp }}
@@ -514,8 +540,8 @@ onMounted(() => {
 
             <span class="cell-status">
               <span
-                  class="status-pill"
-                  :class="`status-pill--${row.statusType}`"
+                class="status-pill"
+                :class="`status-pill--${row.statusType}`"
               >
                 {{ row.status }}
               </span>
@@ -538,7 +564,9 @@ onMounted(() => {
           </div>
 
           <div class="table-footer">
-            <button class="dataset-button" @click="router.push('/dataset')">View Dataset</button>
+            <button class="dataset-button" @click="router.push('/dataset')">
+              View Dataset
+            </button>
           </div>
         </div>
       </section>
@@ -552,33 +580,45 @@ onMounted(() => {
 
           <div class="overview-actions">
             <button
-                class="tool-button tool-button--small"
-                :class="{ 'tool-button--active': quickRange === 'All', 'tool-button--ghost': quickRange !== 'All' }"
-                @click="setQuickRange('All')"
+              class="tool-button tool-button--small"
+              :class="{
+                'tool-button--active': quickRange === 'All',
+                'tool-button--ghost': quickRange !== 'All',
+              }"
+              @click="setQuickRange('All')"
             >
               All
             </button>
 
             <button
-                class="tool-button tool-button--small"
-                :class="{ 'tool-button--active': quickRange === '1W', 'tool-button--ghost': quickRange !== '1W' }"
-                @click="setQuickRange('1W')"
+              class="tool-button tool-button--small"
+              :class="{
+                'tool-button--active': quickRange === '1W',
+                'tool-button--ghost': quickRange !== '1W',
+              }"
+              @click="setQuickRange('1W')"
             >
               1W
             </button>
 
             <button
-                class="tool-button tool-button--small"
-                :class="{ 'tool-button--active': quickRange === '24h', 'tool-button--ghost': quickRange !== '24h' }"
-                @click="setQuickRange('24h')"
+              class="tool-button tool-button--small"
+              :class="{
+                'tool-button--active': quickRange === '24h',
+                'tool-button--ghost': quickRange !== '24h',
+              }"
+              @click="setQuickRange('24h')"
             >
               24h
             </button>
 
             <button
-                class="tool-button tool-button--small"
-                :class="{ 'tool-button--active': quickRange === '14d', 'tool-button--ghost': quickRange !== '14d' }"
-                @click="setQuickRange('14d')"
+              class="tool-button tool-button--small"
+              :class="{
+                'tool-button--active': quickRange === '14d',
+                'tool-button--ghost': quickRange !== '14d',
+              }"
+              @click="setQuickRange('14d')"
             >
               14d
             </button>
@@ -591,11 +631,11 @@ onMounted(() => {
 
         <div class="overview-chart">
           <RadiationChart
-              :key="chartRenderKey"
-              :labels="chartLabels"
-              :values="chartValues"
-              :threshold="activeThreshold"
-              :anomaly-flags="chartAnomalyFlags"
+            :key="chartRenderKey"
+            :labels="chartLabels"
+            :values="chartValues"
+            :threshold="activeThreshold"
+            :anomaly-flags="chartAnomalyFlags"
           />
         </div>
       </section>
@@ -603,7 +643,10 @@ onMounted(() => {
       <section class="summary-hero">
         <div>
           <h2>Detected Events Summary</h2>
-          <p>Review detected events, severity levels, and anomaly scores across the active dataset.</p>
+          <p>
+            Review detected events, severity levels, and anomaly scores across
+            the active dataset.
+          </p>
         </div>
 
         <div class="summary-hero__badge">{{ totalEventsLabel }}</div>
@@ -622,7 +665,9 @@ onMounted(() => {
 
         <div class="filter-card">
           <label>Search</label>
-          <div class="filter-value">{{ searchQuery || 'timestamp / level / score' }}</div>
+          <div class="filter-value">
+            {{ searchQuery || "timestamp / level / score" }}
+          </div>
         </div>
       </section>
 
@@ -640,14 +685,15 @@ onMounted(() => {
             <span>Status</span>
           </div>
 
-          <div v-for="row in anomalyRowsOverview" :key="row.timestamp" class="summary-table__row">
+          <div
+            v-for="row in anomalyRowsOverview"
+            :key="row.timestamp"
+            class="summary-table__row"
+          >
             <span>{{ row.timestamp }}</span>
             <span class="accent">{{ row.level }}</span>
             <span>{{ row.score }}</span>
-            <span
-                class="status"
-                :class="`status--${row.statusType}`"
-            >
+            <span class="status" :class="`status--${row.statusType}`">
               {{ row.status }}
             </span>
           </div>
@@ -680,12 +726,14 @@ onMounted(() => {
 .summary-table-panel {
   border-radius: 22px;
   border: 1px solid rgba(120, 151, 235, 0.12);
-  background:
-      radial-gradient(circle at top right, rgba(76, 111, 255, 0.08), transparent 30%),
-      linear-gradient(180deg, rgba(12, 18, 35, 0.88), rgba(9, 14, 28, 0.96));
-  box-shadow:
-      0 10px 36px rgba(0, 0, 0, 0.22),
-      inset 0 1px 0 rgba(255,255,255,0.02);
+  background: radial-gradient(
+      circle at top right,
+      rgba(76, 111, 255, 0.08),
+      transparent 30%
+    ),
+    linear-gradient(180deg, rgba(12, 18, 35, 0.88), rgba(9, 14, 28, 0.96));
+  box-shadow: 0 10px 36px rgba(0, 0, 0, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.02);
   backdrop-filter: blur(14px);
 }
 
@@ -718,7 +766,7 @@ onMounted(() => {
   padding: 0 14px;
   border-radius: 10px;
   border: 1px solid rgba(120, 151, 235, 0.12);
-  background: rgba(255,255,255,0.05);
+  background: rgba(255, 255, 255, 0.05);
   color: #dbe8ff;
   font-size: 13px;
   cursor: pointer;
@@ -729,7 +777,7 @@ onMounted(() => {
 }
 
 .tool-button--ghost {
-  background: rgba(255,255,255,0.03);
+  background: rgba(255, 255, 255, 0.03);
 }
 
 .tool-button--active {
@@ -750,7 +798,7 @@ onMounted(() => {
   padding: 0 14px;
   border-radius: 10px;
   border: 1px solid rgba(120, 151, 235, 0.12);
-  background: rgba(255,255,255,0.05);
+  background: rgba(255, 255, 255, 0.05);
   color: #7f93b8;
   font-size: 13px;
   display: inline-flex;
@@ -758,6 +806,7 @@ onMounted(() => {
   justify-content: center;
   cursor: pointer;
   overflow: hidden;
+  width: 150px;
 }
 
 .date-trigger--selected {
@@ -776,12 +825,33 @@ onMounted(() => {
 .date-trigger__input {
   position: absolute;
   inset: 0;
+
   width: 100%;
   height: 100%;
+
   opacity: 0;
   cursor: pointer;
+
+  z-index: 5;
+}
+.date-trigger__input::-webkit-datetime-edit {
+  opacity: 0;
 }
 
+.date-trigger__input::-webkit-calendar-picker-indicator {
+  opacity: 0;
+  cursor: pointer;
+  width: 100%;
+  height: 100%;
+}
+.date-trigger:focus-within {
+  border-color: rgba(107, 158, 255, 0.25);
+  box-shadow: none;
+}
+
+.date-trigger__input:focus {
+  outline: none;
+}
 .search-row {
   display: grid;
   grid-template-columns: 1.2fr 1fr auto;
@@ -794,7 +864,7 @@ onMounted(() => {
 .source-box,
 .chip {
   border: 1px solid rgba(120, 151, 235, 0.1);
-  background: rgba(255,255,255,0.04);
+  background: rgba(255, 255, 255, 0.04);
   color: #93a7cf;
 }
 
@@ -868,14 +938,14 @@ onMounted(() => {
   padding: 16px 20px;
   color: #8ea2c9;
   font-size: 13px;
-  border-bottom: 1px solid rgba(255,255,255,0.06);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .table-row,
 .summary-table__row {
   padding: 16px 20px;
   color: #d5e2ff;
-  border-bottom: 1px solid rgba(255,255,255,0.05);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 .cell-timestamp,
@@ -908,14 +978,22 @@ onMounted(() => {
 
 .status-pill--warning,
 .status--warning {
-  background: linear-gradient(180deg, rgba(222, 169, 84, 0.24), rgba(224, 153, 54, 0.22));
+  background: linear-gradient(
+    180deg,
+    rgba(222, 169, 84, 0.24),
+    rgba(224, 153, 54, 0.22)
+  );
   color: #ffe6bd;
   border: 1px solid rgba(255, 208, 132, 0.24);
 }
 
 .status-pill--ml-anomaly,
 .status--ml-anomaly {
-  background: linear-gradient(180deg, rgba(121, 140, 220, 0.22), rgba(72, 91, 160, 0.2));
+  background: linear-gradient(
+    180deg,
+    rgba(121, 140, 220, 0.22),
+    rgba(72, 91, 160, 0.2)
+  );
   color: #d7e4ff;
   border: 1px solid rgba(120, 151, 235, 0.24);
 }
@@ -951,7 +1029,11 @@ onMounted(() => {
   flex: 1;
   height: 6px;
   border-radius: 999px;
-  background: linear-gradient(90deg, rgba(107, 158, 255, 0.28), rgba(126, 240, 191, 0.32));
+  background: linear-gradient(
+    90deg,
+    rgba(107, 158, 255, 0.28),
+    rgba(126, 240, 191, 0.32)
+  );
 }
 
 .table-footer {
@@ -1045,7 +1127,7 @@ onMounted(() => {
 .summary-table {
   overflow: hidden;
   border-radius: 16px;
-  border: 1px solid rgba(255,255,255,0.05);
+  border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 @media (max-width: 1100px) {

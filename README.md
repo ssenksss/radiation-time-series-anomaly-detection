@@ -53,24 +53,24 @@ dashboard and reports
 
 ## Technology stack
 
-| Layer | Technologies |
-| --- | --- |
-| Frontend | Vue 3, TypeScript, Vite, Chart.js |
-| Backend | Python, FastAPI, Uvicorn |
-| Database | PostgreSQL, SQL views |
+| Layer            | Technologies                      |
+| ---------------- | --------------------------------- |
+| Frontend         | Vue 3, TypeScript, Vite, Chart.js |
+| Backend          | Python, FastAPI, Uvicorn          |
+| Database         | PostgreSQL, SQL views             |
 | Machine learning | pandas, NumPy, scikit-learn, PyOD |
 
 ## Database tables
 
-| Table | Purpose |
-| --- | --- |
-| `datasets` | Information about imported datasets |
-| `raw_measurements` | Original uploaded values |
-| `clean_measurements` | Cleaned and standardized measurements |
-| `feature_measurements` | Features used by the models |
-| `anomaly_results` | Model predictions, scores and evaluation split |
-| `model_metrics` | Evaluation metrics for every model |
-| `app_settings` | Active dataset, selected model and threshold |
+| Table                  | Purpose                                        |
+| ---------------------- | ---------------------------------------------- |
+| `datasets`             | Information about imported datasets            |
+| `raw_measurements`     | Original uploaded values                       |
+| `clean_measurements`   | Cleaned and standardized measurements          |
+| `feature_measurements` | Features used by the models                    |
+| `anomaly_results`      | Model predictions, scores and evaluation split |
+| `model_metrics`        | Evaluation metrics for every model             |
+| `app_settings`         | Active dataset, selected model and threshold   |
 
 ## Feature engineering
 
@@ -80,27 +80,27 @@ The models use radiation level, temperature, humidity, time features, rolling ra
 
 ### Unsupervised models
 
-| Model | Role |
-| --- | --- |
-| Isolation Forest | Isolation-based anomaly detector |
-| Local Outlier Factor | Local-density detector |
-| One-Class SVM | Boundary-based detector |
-| DBSCAN | Clustering baseline |
-| K-Means | Distance-from-cluster detector |
-| Gaussian Mixture Model | Probability-density detector |
-| PCA | Reconstruction-error detector |
-| HBOS | Histogram-based detector |
-| ECOD | Empirical-distribution detector |
+| Model                  | Role                             |
+| ---------------------- | -------------------------------- |
+| Isolation Forest       | Isolation-based anomaly detector |
+| Local Outlier Factor   | Local-density detector           |
+| One-Class SVM          | Boundary-based detector          |
+| DBSCAN                 | Clustering baseline              |
+| K-Means                | Distance-from-cluster detector   |
+| Gaussian Mixture Model | Probability-density detector     |
+| PCA                    | Reconstruction-error detector    |
+| HBOS                   | Histogram-based detector         |
+| ECOD                   | Empirical-distribution detector  |
 
 ### Supervised models
 
-| Model | Role |
-| --- | --- |
-| Logistic Regression | Linear baseline classifier |
-| Decision Tree | Interpretable tree classifier |
-| Random Forest | Bagging ensemble classifier |
-| Gradient Boosting | Boosting ensemble classifier |
-| KNN Classifier | Distance-based classifier |
+| Model               | Role                          |
+| ------------------- | ----------------------------- |
+| Logistic Regression | Linear baseline classifier    |
+| Decision Tree       | Interpretable tree classifier |
+| Random Forest       | Bagging ensemble classifier   |
+| Gradient Boosting   | Boosting ensemble classifier  |
+| KNN Classifier      | Distance-based classifier     |
 
 The main pipeline always trains the unsupervised models. If the active dataset has usable labels, it also trains and evaluates the five supervised models. Otherwise, that step is skipped with an explanation.
 
